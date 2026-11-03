@@ -110,13 +110,14 @@ jobs:
       - name: Smoke test container
         shell: bash
         run: |
-          docker volume create rclone-desk-ci-data
+          bind_directory=$(mktemp -d)
+          trap 'docker rm -f rclone-desk-ci >/dev/null 2>&1 || true; sudo rm -rf -- "$bind_directory"' EXIT
+          RCLONE_DESK_DATA_DIR="$bind_directory" ./scripts/prepare-data.sh
           docker run -d --name rclone-desk-ci \
             --cap-drop=ALL --security-opt=no-new-privileges \
             -e APP_ALLOWED_HOSTS=localhost,127.0.0.1 \
             -p 127.0.0.1:18000:8000 \
-            -v rclone-desk-ci-data:/data rclone-desk:ci
-          trap 'docker rm -f rclone-desk-ci >/dev/null 2>&1 || true; docker volume rm rclone-desk-ci-data >/dev/null 2>&1 || true' EXIT
+            --mount "type=bind,source=$bind_directory,target=/data" rclone-desk:ci
           for _ in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18000/api/health; then
               exit 0

@@ -7,10 +7,11 @@ Thanks for helping improve Rclone Desk. It is an experimental, single-admin appl
 Build and run the complete application with Docker Compose:
 
 ```sh
+./scripts/prepare-data.sh
 docker compose up --build
 ```
 
-The image builds the frontend and backend; host Node.js, Python, and rclone are not needed. The app listens on port 8000 inside the container and persists app data under `/data`. Compose binds to localhost by default. Use `PORT` to change the host port.
+The image builds the frontend and backend; host Node.js, Python, and rclone are not needed. The app listens on port 8000 inside the container and persists app data under `/data`, bind-mounted from `./data` in the repository by default. Run the helper once before the first Compose start to prepare that directory for runtime UID 10001. To use another location, export `RCLONE_DESK_DATA_DIR` before running the helper and Compose. Compose binds to localhost by default. Use `PORT` to change the host port.
 
 The frontend source is in `frontend/src`; the FastAPI application is in `backend/main.py`. Keep user-facing copy in both English and Italian localization files. Preserve remote names, file names, and provider values as user data rather than translating them.
 

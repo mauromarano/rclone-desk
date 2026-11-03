@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Use `./data` as the default host bind mount, configurable through `RCLONE_DESK_DATA_DIR`.
+- Add a data-directory preparation helper, bind-based CI smoke checks, and backup/migration instructions for existing named volumes.
+
 ## 0.1.0 — 2026-11-03
 
 Initial experimental public release preparation.

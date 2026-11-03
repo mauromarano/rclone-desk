@@ -15,6 +15,7 @@ Install Docker Engine and the Docker Compose plugin, then clone the repository:
 ```sh
 git clone https://github.com/mauromarano/rclone-desk.git
 cd rclone-desk
+./scripts/prepare-data.sh
 docker compose up --build -d
 ```
 
@@ -24,7 +25,15 @@ Open <http://localhost:8000>. The default host binding is loopback only. To choo
 PORT=8080 docker compose up --build -d
 ```
 
-The first build compiles rclone and may take several minutes. Allow at least 10 GB of free Docker build storage. The container includes the frontend, backend, and rclone. Node.js, Python, and rclone do not need to be installed on the host. Stop the service with `docker compose down`; its named data volume is kept. `docker compose down -v` removes that volume and permanently deletes the saved configuration and job data.
+The first build compiles rclone and may take several minutes. Allow at least 10 GB of free Docker build storage. The container includes the frontend, backend, and rclone. Node.js, Python, and rclone do not need to be installed on the host. Before first startup, `prepare-data.sh` creates the host data directory with private permissions and gives the top-level directory to container UID 10001. The default directory is `./data` in the repository. To use another directory, export an absolute path before running both the helper and Compose:
+
+```sh
+export RCLONE_DESK_DATA_DIR="$HOME/rclone-desk-data"
+./scripts/prepare-data.sh
+docker compose up --build -d
+```
+
+Stop the service with `docker compose down`; host data remains in place. `docker compose down -v` does not remove the bind-mounted data directory. Remove it yourself only when you intend to permanently delete the saved configuration and job data.
 
 For remote access, use an authenticated HTTPS reverse proxy and follow [the deployment guide](docs/deployment.md). Do not publish the app port to an untrusted network: the app itself does not authenticate requests.
 
@@ -32,7 +41,7 @@ For remote access, use an authenticated HTTPS reverse proxy and follow [the depl
 
 Add a remote from **New remote** and configure its provider options, or import/edit rclone-compatible INI configuration in **Settings**. Provider authentication requirements vary.
 
-For a credential-free trial, create two **local** remotes and leave the confined test-remote option enabled. Their data is stored under `/data/test-remotes` in the persistent volume. There is no upload feature; sample files can be added through a host-mounted volume workflow or another container.
+For a credential-free trial, create two **local** remotes and leave the confined test-remote option enabled. Their data is stored under `/data/test-remotes` in the host data directory (`./data/test-remotes` by default). There is no upload feature; sample files can be added there or through another container.
 
 ## Features
 
@@ -52,7 +61,7 @@ flowchart LR
     Browser -->|localhost or authenticated HTTPS proxy| API[FastAPI + React assets]
     API --> CLI[rclone CLI]
     CLI --> Remotes[Storage remotes]
-    API --> Volume[Private data volume]
+    API --> Volume[Private host data directory]
     CLI --> Volume
 ```
 
@@ -60,7 +69,7 @@ flowchart LR
 
 The application has **no built-in authentication or user accounts**. Anyone who can reach it can manage configured credentials and perform file operations. The default Compose port is bound to `127.0.0.1`; retain that boundary and put a reverse proxy with authentication in front if remote access is needed. See [deployment](docs/deployment.md).
 
-The `rclone_data` Compose volume contains `rclone.conf`, job state, and confined local test data. See [backup and restore](docs/backup.md). Treat configuration exports and backups as secrets: provider credentials or tokens may be present. Rclone's obscured values are reversible and are not encryption.
+The host data directory mounted at `/data` contains `rclone.conf`, job state, and confined local test data. See [backup and restore](docs/backup.md). Treat configuration exports and backups as secrets: provider credentials or tokens may be present. Rclone's obscured values are reversible and are not encryption.
 
 ## Limitations
 
@@ -78,18 +87,27 @@ Cron uses five fields and runs in UTC. When both day-of-month and weekday are re
 
 The first experimental prerelease is [v0.1.0](https://github.com/mauromarano/rclone-desk/releases/tag/v0.1.0). The published image is `ghcr.io/mauromarano/rclone-desk:v0.1.0`, available for Linux amd64 and arm64. Its multi-architecture manifest digest is `sha256:64cf480d2f94981af8aa15b7d4400fe997e2724c8318c074c4fb282a5a45462a`.
 
-For a prebuilt installation:
+For a prebuilt installation from a repository checkout:
 
 ```sh
+./scripts/prepare-data.sh
+DATA_DIR="${RCLONE_DESK_DATA_DIR:-$PWD/data}"
+case "$DATA_DIR" in /*) ;; *) DATA_DIR="$PWD/$DATA_DIR" ;; esac
 docker run -d --name rclone-desk --restart unless-stopped \
   --cap-drop=ALL --security-opt=no-new-privileges \
   --memory=2g --cpus=2 --pids-limit=256 \
   -p 127.0.0.1:8000:8000 \
-  -v rclone_desk_data:/data \
+  --mount "type=bind,src=$DATA_DIR,dst=/data" \
   ghcr.io/mauromarano/rclone-desk:v0.1.0
 ```
 
-This example creates its own named volume. For an existing installation, preserve its original data volume and follow [the upgrade/backup guide](docs/backup.md). See [the changelog](CHANGELOG.md), [validation results](docs/RELEASE_VALIDATION.md), [roadmap](ROADMAP.md), [support](SUPPORT.md), and [contribution guide](CONTRIBUTING.md).
+Run `./scripts/prepare-data.sh` before the first `docker run` when using a repository checkout. If you are deploying the image without cloning the repository, create the bind directory with the runtime UID:
+
+```sh
+sudo install -d -m 700 -o 10001 -g 10001 ./data
+```
+
+For an existing installation, preserve its original data and follow [the migration and backup guide](docs/backup.md). See [the changelog](CHANGELOG.md), [validation results](docs/RELEASE_VALIDATION.md), [roadmap](ROADMAP.md), [support](SUPPORT.md), and [contribution guide](CONTRIBUTING.md).
 
 ## License
 

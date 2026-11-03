@@ -20,7 +20,7 @@ The interface delegates storage and transfer behavior to rclone, including its p
 
 ## Operating Context
 
-The application runs in Docker Compose and is used through a web browser. The user may configure real remote credentials after deployment. Local confined remotes are used for credential-free testing. Configuration and jobs persist in a Docker volume.
+The application runs in Docker Compose and is used through a web browser. The user may configure real remote credentials after deployment. Local confined remotes are used for credential-free testing. Configuration and jobs persist in a private host directory bind-mounted at `/data` in the container.
 
 ## Capabilities and Constraints
 

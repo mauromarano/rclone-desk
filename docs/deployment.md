@@ -7,10 +7,23 @@ Rclone Desk is an experimental single-admin app. It has no built-in authenticati
 The Compose configuration builds locally and publishes the service on loopback at `127.0.0.1:${PORT:-8000}`. Start it with:
 
 ```sh
+./scripts/prepare-data.sh
 docker compose up --build -d
 ```
 
-Open <http://localhost:8000>. Set `PORT=8080` to use another local host port. Keep the backend on loopback unless a trusted authentication layer is placed in front of it.
+Open <http://localhost:8000>. Set `PORT=8080` to use another local host port. The host data directory defaults to `./data` in the repository and is mounted at `/data` in the container. Run `./scripts/prepare-data.sh` once before the first startup; it creates the directory with private permissions and sets ownership of the top-level directory to UID 10001. The app creates its config and state files with restrictive permissions.
+
+To use a different location, export its absolute path before running both the preparation script and Compose:
+
+```sh
+export RCLONE_DESK_DATA_DIR="$HOME/rclone-desk-data"
+./scripts/prepare-data.sh
+docker compose up --build -d
+```
+
+Keep custom data outside the repository, or add that directory to both `.gitignore` and `.dockerignore`. For a relative `RCLONE_DESK_DATA_DIR`, the helper resolves it from the repository root. Export the value in the shell before both commands; Compose interpolation does not read a shell variable that was not exported. Do not `source` a `.env` file as shell code. `docker compose down` and `docker compose down -v` leave the host directory in place.
+
+Keep the backend on loopback unless a trusted authentication layer is placed in front of it.
 
 ## Remote access through Caddy
 
@@ -42,7 +55,7 @@ Use only origins you control. CORS and these allowlists do not authenticate user
 
 ## Data and container
 
-`APP_DATA` defaults to `/data`; Compose stores it in the named `rclone_data` volume. The container runs as UID 10001, so a bind-mounted host directory must be writable by that UID. Prefer the named volume unless host-side file access is needed. Avoid mounting the Docker socket, host root, or unrelated secrets. Use narrowly scoped provider credentials.
+`APP_DATA` defaults to `/data`; Compose bind-mounts the host directory selected by `RCLONE_DESK_DATA_DIR` there. The container runs as UID 10001. The preparation script sets the top-level directory owner without recursively changing existing files; it refuses a non-empty directory owned by another UID. For an existing installation, follow the migration instructions in [backup and restore](backup.md). Avoid mounting the Docker socket, host root, or unrelated secrets. Use narrowly scoped provider credentials.
 
 The container image is built locally from this repository. Review the Dockerfile and dependency updates before rebuilding or upgrading an existing deployment. Keep a backup before upgrades; see [backup and restore](backup.md).
 
