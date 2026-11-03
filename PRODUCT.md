@@ -26,6 +26,7 @@ The application runs in Docker Compose and is used through a web browser. The us
 
 - Configure remotes using a provider-backed wizard or an rclone-compatible INI configuration file; edit remote options in the wizard.
 - Browse two remotes in parallel and drag files or folders to transfer them.
+- Create buckets or containers at the root of supported object-storage remotes through rclone.
 - Drag-and-drop offers explicit **Move** and **Copy** modes; Move is the default. Copy preserves the source; Move removes it after a successful transfer.
 - Save and run copy and sync jobs. Sync may delete destination-only files and requires explicit confirmation before each run.
 - Build and run through Docker without installing dependencies on the host.

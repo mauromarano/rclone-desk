@@ -32,6 +32,8 @@ In **Trasferimenti**, choose two remotes and browse their folders. Drag a file o
 
 Create a job to run a copy or sync between remote paths. Copy preserves source files. Sync makes the destination match the source and can delete destination-only files; the app warns during setup and requires explicit confirmation on every sync run. Job status, last-run time, and result/error are saved persistently.
 
+For supported object-storage remotes, **Nuovo bucket** appears at the remote root. It uses `rclone mkdir` with that remote's configured credentials and provider settings. S3-compatible remotes such as Cloudflare R2 are supported; the credentials must have permission to create buckets. The action is also enabled for the rclone `b2`, `google cloud storage`, `azureblob`, `swift`, and `storj` backends.
+
 ## Data and safety
 
 Compose creates the `rclone_data` volume for `rclone.conf`, job state, and confined local test roots. Back up this volume to preserve configuration and jobs. Do not publish this service to the internet without adding an appropriate authentication and network-security layer. The backend invokes fixed rclone argument arrays without a shell, rejects traversal paths, and does not expose rclone's privileged RC API.

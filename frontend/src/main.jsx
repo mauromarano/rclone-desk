@@ -14,6 +14,7 @@ import {
   EyeOff,
   ChevronUp,
   Copy,
+  Database,
   File,
   Files,
   Folder,
@@ -347,6 +348,15 @@ function App() {
     if (firstFailure) setError(firstFailure.reason.message);
   };
 
+  const createBucket = async (name) => {
+    await api(`/buckets/${encodeURIComponent(explorer.remote)}`, {
+      method: 'POST', body: JSON.stringify({ name }),
+    });
+    await loadExplorer(explorer.remote, '');
+    flash(`Bucket “${name}” creato in ${explorer.remote}.`);
+    return true;
+  };
+
   const downloadExplorerEntries = async (entries) => {
     const paths = entries.filter((entry) => !entry.is_dir).map((entry) => entry.path);
     if (!paths.length) {
@@ -591,6 +601,7 @@ function App() {
               onTransferSelected={(entries) => transferExplorerEntries(entries)}
               onDownloadSelected={downloadExplorerEntries}
               onDelete={requestFileDeletion}
+              onCreateBucket={createBucket}
             />
           )}
 
@@ -634,7 +645,8 @@ function App() {
   );
 }
 
-function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, busy, onNavigate, onRefresh, onRemoteChange, onTargetChange, onTargetPathChange, onModeChange, onTransfer, onTransferSelected, onDownloadSelected, onDelete }) {
+function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, busy, onNavigate, onRefresh, onRemoteChange, onTargetChange, onTargetPathChange, onModeChange, onTransfer, onTransferSelected, onDownloadSelected, onDelete, onCreateBucket }) {
+  const [showCreateBucket, setShowCreateBucket] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const segments = explorer.path ? explorer.path.split('/') : [];
   const sortedEntries = [...explorer.entries].sort((a, b) => a.is_dir !== b.is_dir ? (a.is_dir ? -1 : 1) : a.name.localeCompare(b.name, 'it', { numeric: true, sensitivity: 'base' }));
@@ -647,7 +659,10 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
     <section className="workspace-view" aria-labelledby="explorer-title">
       <div className="page-heading explorer-heading">
         <div><h1 id="explorer-title">{explorer.remote || 'Esplora remote'}</h1><p>Esplora cartelle e file, poi copiali o spostali verso un altro remote.</p></div>
-        <button className="secondary-button" onClick={onRefresh}><RefreshCw size={15} />Aggiorna</button>
+        <div className="explorer-heading-actions">
+          {explorer.path === '' && remotes.find((remote) => remote.name === explorer.remote)?.bucket_supported && <button className="secondary-button" onClick={() => setShowCreateBucket(true)}><Plus size={15} />Nuovo bucket</button>}
+          <button className="secondary-button" onClick={onRefresh}><RefreshCw size={15} />Aggiorna</button>
+        </div>
       </div>
       <section className="explorer-toolbar" aria-label="Trasferimento dal remote">
         <label className="form-field explorer-source"><span>Remote aperto</span><select value={explorer.remote} onChange={(event) => onRemoteChange(event.target.value)}>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></label>
@@ -700,8 +715,38 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
         </div>
         {mode === 'move' && <p className="explorer-note"><TriangleAlert size={14} />Sposta elimina la sorgente solo dopo il trasferimento riuscito.</p>}
       </section>
+      {showCreateBucket && <CreateBucketDialog remote={explorer.remote} onCancel={() => setShowCreateBucket(false)} onCreate={onCreateBucket} />}
     </section>
   );
+}
+
+function CreateBucketDialog({ remote, onCancel, onCreate }) {
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const created = await onCreate(name.trim());
+      if (created) onCancel();
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <ModalBackdrop onClose={saving ? () => {} : onCancel}><section className="dialog create-bucket-dialog" role="dialog" aria-modal="true" aria-labelledby="create-bucket-title">
+    <div className="dialog-heading"><div><h2 id="create-bucket-title">Crea un bucket</h2><p>Il bucket verrà creato alla radice di <strong>{remote}</strong>.</p></div><button type="button" className="icon-button" onClick={onCancel} disabled={saving} aria-label="Chiudi"><X size={17} /></button></div>
+    <form onSubmit={submit}>
+      <div className="form-field"><label htmlFor="bucket-name">Nome bucket</label><input id="bucket-name" autoComplete="off" autoCapitalize="none" spellCheck="false" required maxLength={255} value={name} onChange={(event) => setName(event.target.value)} placeholder="es. archivio-documenti" /><span>Il nome deve rispettare le regole del provider. Servono credenziali con permesso di creazione.</span></div>
+      {error && <p className="create-bucket-error" role="alert"><Database size={15} />{error}</p>}
+      <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel} disabled={saving}>Annulla</button><button type="submit" className="primary-button" disabled={saving || !name.trim()}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}Crea bucket</button></div>
+    </form>
+  </section></ModalBackdrop>;
 }
 
 function OperationsTray({ operations }) {

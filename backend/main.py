@@ -39,6 +39,8 @@ if not STATE.exists():
 
 app = FastAPI(title="Rclone Desk")
 
+BUCKET_BACKENDS = {"s3", "b2", "google cloud storage", "azureblob", "swift", "storj"}
+
 
 def state() -> dict[str, Any]:
     try:
@@ -169,6 +171,10 @@ class DownloadSelectionInput(BaseModel):
 
 class DeleteSelectionInput(BaseModel):
     paths: list[str]
+
+
+class BucketInput(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
 
 
 def parse_cron_field(value: str, minimum: int, maximum: int) -> set[int]:
@@ -504,7 +510,8 @@ def normalize_config_passwords(content: str, parser: configparser.ConfigParser) 
 def remotes():
     parser = parsed_config()
     roots = state().get("local_roots", {})
-    return [{"name": name, "type": section.get("type", ""), "test": name in roots}
+    return [{"name": name, "type": section.get("type", ""), "test": name in roots,
+             "bucket_supported": section.get("type", "").lower() in BUCKET_BACKENDS}
             for name, section in parser.items() if name != "DEFAULT"]
 
 
@@ -581,6 +588,27 @@ def browse(remote: str, path: str = ""):
          "mod_time": e.get("ModTime", ""), "path": "/".join(filter(None, [safe_relative(path), e.get("Name", "")]))}
         for e in entries
     ]}
+
+
+@app.post("/api/buckets/{remote}")
+def create_bucket(remote: str, item: BucketInput):
+    safe_remote(remote)
+    name = item.name.strip()
+    if not name or name in (".", "..") or not re.fullmatch(r"[^/:\\\x00-\x20\x7f]+", name):
+        raise HTTPException(400, "Inserisci un nome bucket valido, senza slash o caratteri di controllo.")
+
+    config = parsed_config()
+    if not config.has_section(remote):
+        raise HTTPException(404, f"Remote '{remote}' non esiste")
+    backend_type = config[remote].get("type", "").lower()
+    if backend_type not in BUCKET_BACKENDS:
+        raise HTTPException(400, f"La creazione di bucket non è supportata per il backend '{backend_type}'.")
+    if remote in state().get("local_roots", {}):
+        raise HTTPException(400, "La creazione di bucket non è disponibile sui remote locali di test.")
+
+    target = remote_path(remote, name)
+    run_rclone(["mkdir", target], timeout=120)
+    return {"remote": remote, "name": name, "created": True}
 
 
 @app.post("/api/transfer")
