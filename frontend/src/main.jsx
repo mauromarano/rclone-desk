@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
+import LocalizeTree from './i18n/LocalizeTree.jsx';
 import {
   ArrowLeft,
   ArrowDownToLine,
@@ -59,13 +62,15 @@ const formatSize = (value) => {
 const formatDate = (value) => {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat('it-IT', { dateStyle: 'medium' }).format(date);
+  return Number.isNaN(date.valueOf()) ? '—' : new Intl.DateTimeFormat(i18n.language.startsWith('it') ? 'it-IT' : 'en-US', { dateStyle: 'medium' }).format(date);
 };
 
 const formatScheduledTime = (value) => {
   if (!value) return '—';
   const [year, month, day] = value.slice(0, 10).split('-');
-  return `${day}/${month}/${year} · ${value.slice(11, 16)}`;
+  const date = new Date(`${year}-${month}-${day}T${value.slice(11, 16)}:00Z`);
+  const formattedDate = new Intl.DateTimeFormat(i18n.language.startsWith('it') ? 'it-IT' : 'en-US', { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+  return `${formattedDate} · ${value.slice(11, 16)}`;
 };
 
 const joinPath = (...parts) => parts.filter(Boolean).join('/');
@@ -107,10 +112,11 @@ function ModalBackdrop({ children, onClose }) {
     };
   }, []);
 
-  return <div ref={backdrop} className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>{children}</div>;
+  return <LocalizeTree><div ref={backdrop} className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>{children}</div></LocalizeTree>;
 }
 
 function App() {
+  const { i18n } = useTranslation('ui');
   const [remotes, setRemotes] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [providers, setProviders] = useState([]);
@@ -507,8 +513,8 @@ function App() {
     setView(remoteReturnView);
   };
 
-  return (
-    <div className="app-shell">
+  return (<LocalizeTree>
+    <LocalizeTree><div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#browser" onClick={(event) => { event.preventDefault(); setView('browser'); }}>
           <span className="brand-mark"><ArrowLeftRight size={19} strokeWidth={2.2} /></span>
@@ -621,6 +627,11 @@ function App() {
               flash={flash}
               setError={setError}
               refresh={refresh}
+              language={i18n.language}
+              onLanguageChange={(language) => {
+                window.localStorage.setItem('rclone-desk-language', language);
+                i18n.changeLanguage(language);
+              }}
             />
           )}
 
@@ -641,8 +652,8 @@ function App() {
       {deletingJob && <DeleteJobConfirm job={deletingJob} onCancel={() => setDeletingJob(null)} onConfirm={deleteJob} />}
       {pendingFileDeletion && <DeleteFilesConfirm key={pendingFileDeletion.stage} deletion={pendingFileDeletion} busy={deletionBusy} onCancel={() => setPendingFileDeletion(null)} onContinue={() => setPendingFileDeletion((current) => current && ({ ...current, stage: 2 }))} onBack={() => setPendingFileDeletion((current) => current && ({ ...current, stage: 1 }))} onConfirm={confirmFileDeletion} remote={explorer.remote} />}
       <OperationsTray operations={operations.filter((operation) => ['queued', 'running'].includes(operation.status))} />
-    </div>
-  );
+    </div></LocalizeTree>
+  </LocalizeTree>);
 }
 
 function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, busy, onNavigate, onRefresh, onRemoteChange, onTargetChange, onTargetPathChange, onModeChange, onTransfer, onTransferSelected, onDownloadSelected, onDelete, onCreateBucket }) {
@@ -655,7 +666,7 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
   const allSelected = sortedEntries.length > 0 && sortedEntries.every((entry) => selectedPaths.has(entry.path));
   const destinationChoices = remotes.filter((remote) => remote.name !== explorer.remote);
   useEffect(() => setSelectedPaths(new Set()), [explorer.remote, explorer.path]);
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="explorer-title">
       <div className="page-heading explorer-heading">
         <div><h1 id="explorer-title">{explorer.remote || 'Esplora remote'}</h1><p>Esplora cartelle e file, poi copiali o spostali verso un altro remote.</p></div>
@@ -717,7 +728,7 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
       </section>
       {showCreateBucket && <CreateBucketDialog remote={explorer.remote} onCancel={() => setShowCreateBucket(false)} onCreate={onCreateBucket} />}
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function CreateBucketDialog({ remote, onCancel, onCreate }) {
@@ -739,19 +750,19 @@ function CreateBucketDialog({ remote, onCancel, onCreate }) {
     }
   };
 
-  return <ModalBackdrop onClose={saving ? () => {} : onCancel}><section className="dialog create-bucket-dialog" role="dialog" aria-modal="true" aria-labelledby="create-bucket-title">
+  return <LocalizeTree><ModalBackdrop onClose={saving ? () => {} : onCancel}><section className="dialog create-bucket-dialog" role="dialog" aria-modal="true" aria-labelledby="create-bucket-title">
     <div className="dialog-heading"><div><h2 id="create-bucket-title">Crea un bucket</h2><p>Il bucket verrà creato alla radice di <strong>{remote}</strong>.</p></div><button type="button" className="icon-button" onClick={onCancel} disabled={saving} aria-label="Chiudi"><X size={17} /></button></div>
     <form onSubmit={submit}>
       <div className="form-field"><label htmlFor="bucket-name">Nome bucket</label><input id="bucket-name" autoComplete="off" autoCapitalize="none" spellCheck="false" required maxLength={255} value={name} onChange={(event) => setName(event.target.value)} placeholder="es. archivio-documenti" /><span>Il nome deve rispettare le regole del provider. Servono credenziali con permesso di creazione.</span></div>
       {error && <p className="create-bucket-error" role="alert"><Database size={15} />{error}</p>}
       <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel} disabled={saving}>Annulla</button><button type="submit" className="primary-button" disabled={saving || !name.trim()}>{saving ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}Crea bucket</button></div>
     </form>
-  </section></ModalBackdrop>;
+  </section></ModalBackdrop></LocalizeTree>;
 }
 
 function OperationsTray({ operations }) {
   if (!operations.length) return null;
-  return (
+  return (<LocalizeTree>
     <section className="operations-tray" aria-label="Operazioni in corso" aria-live="polite">
       {operations.map((operation) => <article className="operation-item" key={operation.id}>
         <div className="operation-heading"><LoaderCircle size={16} className="spin" /><strong>{operation.label}</strong><span>{operation.percentage == null ? 'In corso' : `${operation.percentage}%`}</span></div>
@@ -759,11 +770,11 @@ function OperationsTray({ operations }) {
         <div className="operation-details"><span>{operation.percentage == null ? (operation.total_transfers ? `${operation.transfers} di ${operation.total_transfers} file` : 'Calcolo avanzamento…') : `${formatSize(operation.bytes)} di ${formatSize(operation.total_bytes)}`}</span>{operation.speed > 0 && <span>{formatSize(operation.speed)}/s</span>}</div>
       </article>)}
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function TransferWorkspace({ panes, remotes, mode, busy, dropTarget, onModeChange, onSwapPanes, onRemoteChange, onNavigate, onTransfer, onDrop, onDragEnter, onDragLeave, onRefresh, onAddRemote }) {
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="transfer-title">
       <div className="page-heading transfer-heading">
         <div><h1 id="transfer-title">Trasferisci file</h1><p>Scegli due remote e trascina i file da uno all’altro.</p></div>
@@ -807,7 +818,7 @@ function TransferWorkspace({ panes, remotes, mode, busy, dropTarget, onModeChang
       </div>
       <p className="transfer-help"><span className="help-symbol">i</span>{mode === 'move' ? 'Sposta elimina la sorgente solo dopo un trasferimento riuscito.' : 'Copia non modifica i file presenti nella sorgente; un file omonimo in destinazione può essere sovrascritto.'} Usa il pulsante in ogni riga anche senza drag-and-drop.</p>
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChange, onNavigate, onTransfer, onDrop, onDragEnter, onDragLeave, onRefresh, onAddRemote }) {
@@ -838,7 +849,7 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
     </th>;
   };
 
-  return (
+  return (<LocalizeTree>
     <section
       className={`file-pane ${isDropTarget ? 'drop-active' : ''}`}
       onDragOver={handleDragOver}
@@ -916,7 +927,7 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
       </div>
       <footer className="pane-footer"><span>{pane.remote ? `${pane.entries.length} elementi` : 'Seleziona un remote'}</span><span>{index === 0 ? '01 / Sorgente' : '02 / Destinazione'}</span></footer>
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function jobErrorSummary(value) {
@@ -928,7 +939,7 @@ function jobErrorSummary(value) {
 
 function JobsWorkspace({ jobs, remotes, busy, onCreate, onEdit, onDelete, onRun }) {
   const [errorJob, setErrorJob] = useState(null);
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="jobs-title">
       <div className="page-heading"><div><h1 id="jobs-title">Job di sincronizzazione</h1><p>Salva una configurazione di trasferimento e avviala quando serve.</p></div><button className="primary-button" onClick={onCreate} disabled={remotes.length < 2}><Plus size={16} />Nuovo job</button></div>
       {jobs.length ? (
@@ -952,7 +963,7 @@ function JobsWorkspace({ jobs, remotes, busy, onCreate, onEdit, onDelete, onRun 
       )}
       {errorJob && <JobErrorDetails job={errorJob} onClose={() => setErrorJob(null)} />}
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function JobErrorDetails({ job, onClose }) {
@@ -968,7 +979,7 @@ function JobErrorDetails({ job, onClose }) {
       setCopyError(error.message);
     }
   };
-  return (
+  return (<LocalizeTree>
     <ModalBackdrop onClose={onClose}>
       <section className="dialog job-error-dialog" role="dialog" aria-modal="true" aria-labelledby="job-error-title">
         <div className="dialog-heading"><div><h2 id="job-error-title">Dettagli errore</h2><p>Job: <strong>{job.name}</strong></p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Chiudi dettagli errore"><X size={17} /></button></div>
@@ -977,10 +988,10 @@ function JobErrorDetails({ job, onClose }) {
         <div className="job-error-footer"><span aria-live="polite">{copyError || (copied ? 'Log copiato negli appunti.' : 'Il log completo è disponibile qui sopra.')}</span><div className="dialog-actions"><button type="button" className="secondary-button" onClick={copyErrorDetails}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? 'Copiato' : 'Copia log'}</button><button type="button" className="primary-button" onClick={onClose}>Chiudi</button></div></div>
       </section>
     </ModalBackdrop>
-  );
+  </LocalizeTree>);
 }
 
-function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh }) {
+function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh, language, onLanguageChange }) {
   const [config, setConfig] = useState('');
   const [saving, setSaving] = useState(false);
   const [configVisible, setConfigVisible] = useState(false);
@@ -1025,9 +1036,13 @@ function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh })
     URL.revokeObjectURL(url);
   };
 
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="settings-title">
       <div className="page-heading"><div><h1 id="settings-title">Configurazione</h1><p>Gestisci i remote e il file standard di rclone.</p></div><button className="primary-button" onClick={onAdd}><Plus size={16} />Nuovo remote</button></div>
+      <section className="settings-section language-section" aria-labelledby="language-title">
+        <div className="section-heading"><div><h2 id="language-title">Lingua</h2><p>Scegli la lingua dell’interfaccia.</p></div></div>
+        <label className="form-field language-picker"><span>Lingua</span><select value={language.startsWith('it') ? 'it' : 'en'} onChange={(event) => onLanguageChange(event.target.value)}><option value="en">English</option><option value="it">Italiano</option></select></label>
+      </section>
       <section className="settings-section" aria-labelledby="remote-list-title">
         <div className="section-heading"><div><h2 id="remote-list-title">Remote configurati</h2><p>Le credenziali restano nel file privato di rclone.</p></div><span className="section-count">{remotes.length} {remotes.length === 1 ? 'remote' : 'remote'}</span></div>
         {remotes.length ? <div className="remote-table-wrap"><table className="remote-table"><thead><tr><th scope="col">Remote</th><th scope="col">Backend</th><th scope="col">Stato</th><th scope="col"><span className="sr-only">Modifica</span></th></tr></thead><tbody>{remotes.map((remote) => (
@@ -1047,7 +1062,7 @@ function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh })
         </div>
       </section>
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
@@ -1106,7 +1121,7 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
     setSaving(false);
   };
 
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view remote-workspace" aria-labelledby="remote-editor-title">
       <div className="page-heading remote-page-heading">
         <div>
@@ -1173,7 +1188,7 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
         <div className="remote-form-actions"><button type="button" className="secondary-button" onClick={onCancel}>Annulla</button><button className="primary-button" disabled={saving || showingProviderResults}>{saving && <LoaderCircle size={16} className="spin" />}{remote ? 'Salva modifiche' : 'Salva remote'}</button></div>
       </form>
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function FolderPicker({ remote, initialPath, onCancel, onSelect }) {
@@ -1195,7 +1210,7 @@ function FolderPicker({ remote, initialPath, onCancel, onSelect }) {
 
   const parts = path ? path.split('/').filter(Boolean) : [];
   const openPath = (nextPath) => setPath(nextPath.replace(/^\/+|\/+$/g, ''));
-  return (
+  return (<LocalizeTree>
     <ModalBackdrop onClose={onCancel}>
       <section className="dialog folder-picker" role="dialog" aria-modal="true" aria-labelledby="folder-picker-title">
         <div className="dialog-heading"><div><h2 id="folder-picker-title">Scegli una cartella</h2><p>Remote <strong>{remote}</strong> · seleziona una cartella da usare nel job.</p></div><button type="button" className="icon-button" onClick={onCancel} aria-label="Chiudi"><X size={17} /></button></div>
@@ -1211,7 +1226,7 @@ function FolderPicker({ remote, initialPath, onCancel, onSelect }) {
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>Annulla</button><button type="button" className="primary-button" onClick={() => onSelect(path)}>Usa questa cartella</button></div>
       </section>
     </ModalBackdrop>
-  );
+  </LocalizeTree>);
 }
 
 function JobWorkspace({ remotes, job, onCancel, onSubmit }) {
@@ -1272,7 +1287,7 @@ function JobWorkspace({ remotes, job, onCancel, onSubmit }) {
     }
   };
 
-  return (
+  return (<LocalizeTree>
     <section className="workspace-view job-editor-workspace" aria-labelledby="job-editor-title">
       <div className="page-heading job-editor-heading">
         <div><h1 id="job-editor-title">{job ? 'Modifica job' : 'Nuovo job'}</h1><p>Definisci cosa eseguire, tra quali remote e quando avviarlo.</p></div>
@@ -1308,18 +1323,18 @@ function JobWorkspace({ remotes, job, onCancel, onSubmit }) {
       </form>
       {folderPicker && <FolderPicker key={`${folderPicker.side}-${folderPicker.remote}`} remote={folderPicker.remote} initialPath={folderPicker.path} onCancel={() => setFolderPicker(null)} onSelect={(path) => { if (folderPicker.side === 'source') setSourcePath(path); else setDestinationPath(path); setFolderPicker(null); }} />}
     </section>
-  );
+  </LocalizeTree>);
 }
 
 function DeleteJobConfirm({ job, onCancel, onConfirm }) {
-  return <ModalBackdrop onClose={onCancel}><section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-job-title" aria-describedby="delete-job-description"><div className="warning-mark"><Trash2 size={20} /></div><h2 id="delete-job-title">Eliminare questo job?</h2><p id="delete-job-description">“{job.name}” verrà rimosso insieme alla sua programmazione. L’operazione non modifica i file nei remote.</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>Annulla</button><button className="danger-button" onClick={onConfirm}>Elimina job</button></div></section></ModalBackdrop>;
+  return <LocalizeTree><ModalBackdrop onClose={onCancel}><section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-job-title" aria-describedby="delete-job-description"><div className="warning-mark"><Trash2 size={20} /></div><h2 id="delete-job-title">Eliminare questo job?</h2><p id="delete-job-description">“{job.name}” verrà rimosso insieme alla sua programmazione. L’operazione non modifica i file nei remote.</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>Annulla</button><button className="danger-button" onClick={onConfirm}>Elimina job</button></div></section></ModalBackdrop></LocalizeTree>;
 }
 
 function DeleteFilesConfirm({ deletion, busy, onCancel, onContinue, onBack, onConfirm, remote }) {
   const folders = deletion.entries.filter((entry) => entry.is_dir);
   const count = deletion.entries.length;
   const names = deletion.entries.slice(0, 5);
-  return (
+  return (<LocalizeTree>
     <ModalBackdrop onClose={onCancel}>
       <section className="dialog confirm-dialog delete-files-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-files-title" aria-describedby="delete-files-description">
         <div className="warning-mark"><Trash2 size={20} /></div>
@@ -1338,11 +1353,11 @@ function DeleteFilesConfirm({ deletion, busy, onCancel, onContinue, onBack, onCo
         </>}
       </section>
     </ModalBackdrop>
-  );
+  </LocalizeTree>);
 }
 
 function SyncConfirm({ job, busy, onCancel, onConfirm }) {
-  return (
+  return (<LocalizeTree>
     <ModalBackdrop onClose={onCancel}>
       <section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sync-confirm-title" aria-describedby="sync-confirm-description">
         <div className="warning-mark"><TriangleAlert size={21} /></div>
@@ -1351,7 +1366,7 @@ function SyncConfirm({ job, busy, onCancel, onConfirm }) {
         <div className="dialog-actions"><button className="secondary-button" onClick={onCancel} disabled={busy}>Annulla</button><button className="danger-button" onClick={onConfirm} disabled={busy}>{busy ? 'Sincronizzazione…' : 'Conferma ed esegui'}</button></div>
       </section>
     </ModalBackdrop>
-  );
+  </LocalizeTree>);
 }
 
 createRoot(document.getElementById('root')).render(<App/>);

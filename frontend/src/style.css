@@ -577,3 +577,6 @@ button:disabled { cursor: not-allowed; opacity: .56; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.language-section { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.language-picker { width: min(280px, 100%); margin: 0; }
+.language-picker > span { color: #3b4960; font-size: 12px; font-weight: 680; }

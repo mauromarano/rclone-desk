@@ -1,1 +1,1 @@
-{"name":"rclone-desk","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@vitejs/plugin-react":"latest","vite":"latest","react":"latest","react-dom":"latest","lucide-react":"^0.468.0"},"devDependencies":{}}
+{"name":"rclone-desk","version":"1.0.0","private":true,"type":"module","scripts":{"build":"vite build"},"dependencies":{"@vitejs/plugin-react":"latest","i18next":"^26.7.1","lucide-react":"^0.468.0","react":"latest","react-dom":"latest","react-i18next":"^17.1.11","vite":"latest"}}
