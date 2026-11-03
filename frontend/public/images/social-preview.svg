@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <rect width="1280" height="640" fill="#f4f6f9"/>
+  <rect x="0" y="0" width="1280" height="54" fill="#fff"/>
+  <rect x="0" y="54" width="270" height="586" fill="#fff"/>
+  <path d="M270 54v586" stroke="#dfe4ec" stroke-width="2"/>
+  <g transform="translate(34 15) scale(.5)">
+    <rect x="3" y="7" width="18" height="34" rx="4" fill="#172033"/><rect x="27" y="7" width="18" height="34" rx="4" fill="#2459D6"/>
+    <path d="M17 24h14m-4-5 5 5-5 5" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5"/>
+  </g>
+  <text x="70" y="37" fill="#172033" font-family="system-ui,sans-serif" font-size="22" font-weight="700">Rclone Desk</text>
+  <text x="320" y="112" fill="#172033" font-family="system-ui,sans-serif" font-size="28" font-weight="700">Transfer files</text>
+  <text x="320" y="145" fill="#526078" font-family="system-ui,sans-serif" font-size="17">Choose two remotes and move or copy with confidence.</text>
+  <rect x="320" y="184" width="438" height="386" rx="12" fill="#fff" stroke="#dfe4ec" stroke-width="2"/>
+  <rect x="778" y="184" width="438" height="386" rx="12" fill="#fff" stroke="#dfe4ec" stroke-width="2"/>
+  <rect x="342" y="205" width="394" height="48" rx="7" fill="#edf3ff"/>
+  <rect x="800" y="205" width="394" height="48" rx="7" fill="#edf3ff"/>
+  <circle cx="361" cy="229" r="8" fill="#2459d6"/><circle cx="819" cy="229" r="8" fill="#2459d6"/>
+  <text x="379" y="235" fill="#172033" font-family="system-ui,sans-serif" font-size="17" font-weight="650">Source remote</text>
+  <text x="837" y="235" fill="#172033" font-family="system-ui,sans-serif" font-size="17" font-weight="650">Destination remote</text>
+  <g stroke="#dfe4ec" stroke-width="2"><path d="M342 279h394M342 336h394M342 393h394M342 450h394M342 507h394"/><path d="M800 279h394M800 336h394M800 393h394M800 450h394M800 507h394"/></g>
+  <g fill="#2459d6"><path d="M359 294h19v17h-19z"/><path d="M817 294h19v17h-19z"/><path d="M359 351h19v17h-19z"/><path d="M817 351h19v17h-19z"/><path d="M359 408h19v17h-19z"/><path d="M817 408h19v17h-19z"/></g>
+  <g fill="#526078" font-family="system-ui,sans-serif" font-size="15"><text x="390" y="309">Documents</text><text x="848" y="309">Documents</text><text x="390" y="366">Photos</text><text x="848" y="366">Photos</text><text x="390" y="423">Archive</text><text x="848" y="423">Archive</text></g>
+  <rect x="549" y="596" width="182" height="30" rx="7" fill="#2459d6"/><text x="590" y="617" fill="#fff" font-family="system-ui,sans-serif" font-size="14" font-weight="650">Copy or move</text>
+</svg>

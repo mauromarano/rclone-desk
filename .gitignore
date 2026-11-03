@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+frontend/dist/
+coverage/
+.pytest_cache/
+
+# Local storage and credential exports
+/data/
+/app-data/
+rclone*.conf
+state.json
+*.pem
+*.key
+*.p12
+*.sqlite*
+*.db
+*.zip
+*.tar.gz
+*.log
+.DS_Store
+.idea/
+
+# Local design review output (product/design briefs remain tracked)
+.impeccable/review/
+.impeccable/questions/
+
+.ruff_cache/

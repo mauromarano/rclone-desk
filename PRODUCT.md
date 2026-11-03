@@ -28,9 +28,9 @@ The application runs in Docker Compose and is used through a web browser. The us
 - Browse two remotes in parallel and drag files or folders to transfer them.
 - Create buckets or containers at the root of supported object-storage remotes through rclone.
 - Drag-and-drop offers explicit **Move** and **Copy** modes; Move is the default. Copy preserves the source; Move removes it after a successful transfer.
-- Save and run copy and sync jobs. Sync may delete destination-only files and requires explicit confirmation before each run.
+- Save and run copy and sync jobs. Sync may delete destination-only files. Manual runs require explicit confirmation each time; scheduled sync requires persistent consent when configured.
 - Build and run through Docker without installing dependencies on the host.
-- The app has no authentication layer and binds to `0.0.0.0`; network access must be restricted by firewall or an authenticated reverse proxy.
+- The app has no built-in authentication. Compose publishes it on loopback (`127.0.0.1`) by default; remote access requires an authenticated HTTPS reverse proxy with no upstream bypass. The internal container server binds to `0.0.0.0`.
 - Real cloud-provider credentials and live remote behavior are not part of the test environment; local remotes provide the verification path.
 
 ## Brand Commitments

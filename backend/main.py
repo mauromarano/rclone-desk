@@ -1,6 +1,14 @@
 from __future__ import annotations
 
 import configparser
+import functools
+import io
+import shutil
+import signal
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from functools import lru_cache
 import json
 import os
 import re
@@ -13,13 +21,12 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from backend.security import install_boundary
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from starlette.background import BackgroundTask
 
 DATA = Path(os.environ.get("APP_DATA", "/data")).resolve()
 TEST_ROOT = (DATA / "test-remotes").resolve()
@@ -29,7 +36,10 @@ LOCK = threading.RLock()
 OPERATIONS: dict[str, dict[str, Any]] = {}
 OPERATIONS_LOCK = threading.RLock()
 SCHEDULER_STARTED = False
-DATA.mkdir(parents=True, exist_ok=True)
+SCHEDULER_STOP = threading.Event()
+os.umask(0o077)
+DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
+DATA.chmod(0o700)
 TEST_ROOT.mkdir(parents=True, exist_ok=True)
 
 if not CONFIG.exists():
@@ -37,7 +47,66 @@ if not CONFIG.exists():
 if not STATE.exists():
     STATE.write_text(json.dumps({"local_roots": {}, "jobs": []}), encoding="utf-8")
 
-app = FastAPI(title="Rclone Desk")
+for private_file in (CONFIG, STATE):
+    private_file.chmod(0o600)
+
+app = FastAPI(title="Rclone Desk", version="0.1.0")
+install_boundary(app)
+CONFIG_USERS = 0
+RCLONE_SLOTS = threading.BoundedSemaphore(8)
+EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rclone")
+CANCEL_EVENTS: dict[str, threading.Event] = {}
+MAX_PENDING_OPERATIONS = 256
+DOWNLOAD_SLOTS = threading.BoundedSemaphore(2)
+DOWNLOAD_ROOT = Path(tempfile.gettempdir()) / "rclone-desk-downloads"
+DOWNLOAD_ROOT.mkdir(mode=0o700, exist_ok=True)
+if DOWNLOAD_ROOT.is_symlink():
+    raise RuntimeError("Temporary download directory must not be a symlink")
+DOWNLOAD_ROOT.chmod(0o700)
+for stale_spool in DOWNLOAD_ROOT.glob("download-*"):
+    if stale_spool.is_file() or stale_spool.is_symlink():
+        stale_spool.unlink()
+MAX_DOWNLOAD_BYTES = 1024 * 1024 * 1024
+DOWNLOAD_TIMEOUT = 300
+
+
+def locked(function):
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        with LOCK:
+            return function(*args, **kwargs)
+    return wrapper
+
+
+@contextmanager
+def config_use():
+    global CONFIG_USERS
+    with LOCK:
+        CONFIG_USERS += 1
+    try:
+        yield
+    finally:
+        with LOCK:
+            CONFIG_USERS -= 1
+
+
+def require_config_idle():
+    with OPERATIONS_LOCK:
+        active = any(op["status"] in ("queued", "running") for op in OPERATIONS.values())
+    if CONFIG_USERS or active:
+        raise HTTPException(409, "Wait for active remote operations before editing configuration")
+
+
+def secure_write(path: Path, content: str) -> None:
+    descriptor, name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 BUCKET_BACKENDS = {"s3", "b2", "google cloud storage", "azureblob", "swift", "storj"}
 
@@ -45,31 +114,73 @@ BUCKET_BACKENDS = {"s3", "b2", "google cloud storage", "azureblob", "swift", "st
 def state() -> dict[str, Any]:
     try:
         return json.loads(STATE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"local_roots": {}, "jobs": []}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(500, "Saved state cannot be read; restore a valid backup") from exc
 
 
 def save_state(value: dict[str, Any]) -> None:
-    temp = STATE.with_suffix(".tmp")
-    temp.write_text(json.dumps(value, indent=2), encoding="utf-8")
-    temp.replace(STATE)
+    with LOCK:
+        secure_write(STATE, json.dumps(value, indent=2))
 
 
-def run_rclone(args: list[str], timeout: int = 3600) -> str:
+def kill_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
     try:
-        result = subprocess.run(
-            ["rclone", *args, "--config", str(CONFIG), "--log-level", "ERROR"],
-            capture_output=True, text=True, timeout=timeout, check=False,
-            env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"},
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(504, "rclone operation timed out") from exc
-    except OSError as exc:
-        raise HTTPException(500, f"Could not start rclone: {exc}") from exc
-    if result.returncode:
-        message = (result.stderr or result.stdout or "rclone failed").strip()
-        raise HTTPException(400, message[-3000:])
-    return result.stdout
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def run_rclone(args: list[str], timeout: int = 120) -> str:
+    with config_use(), RCLONE_SLOTS:
+        try:
+            process = subprocess.Popen(
+                ["rclone", *args, "--config", str(CONFIG), "--log-level", "ERROR"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"},
+            )
+        except OSError as exc:
+            raise HTTPException(500, "Could not start rclone") from exc
+        output = bytearray()
+        diagnostics = deque(maxlen=32)
+        overflow = threading.Event()
+
+        def read_output():
+            for chunk in iter(lambda: process.stdout.read(65536), b""):
+                if len(output) + len(chunk) > 32 * 1024 * 1024:
+                    overflow.set()
+                    kill_process(process)
+                    return
+                output.extend(chunk)
+
+        def read_errors():
+            for chunk in iter(lambda: process.stderr.read(2048), b""):
+                diagnostics.append(chunk)
+
+        readers = [threading.Thread(target=read_output, daemon=True), threading.Thread(target=read_errors, daemon=True)]
+        for reader in readers:
+            reader.start()
+        try:
+            process.wait(timeout=timeout)
+            for reader in readers:
+                reader.join(timeout=5)
+            if overflow.is_set():
+                raise HTTPException(413, "Remote listing exceeds 32 MiB; browse a smaller directory")
+            if process.returncode:
+                # Raw provider diagnostics may contain credentials or signed URLs.
+                raise HTTPException(400, "rclone request failed; check remote configuration and provider access")
+            return output.decode("utf-8", errors="replace")
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(504, "rclone operation timed out") from exc
+        finally:
+            if process.poll() is None:
+                kill_process(process)
+            process.wait(timeout=5)
+            for reader in readers:
+                reader.join(timeout=5)
+            process.stdout.close()
+            process.stderr.close()
 
 
 def parsed_config() -> configparser.ConfigParser:
@@ -83,14 +194,14 @@ def parsed_config() -> configparser.ConfigParser:
 
 
 def safe_remote(name: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", name):
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}", name):
         raise HTTPException(400, "Remote name may contain letters, numbers, dot, underscore and dash")
     return name
 
 
 def safe_relative(path: str) -> str:
     value = path.strip().replace("\\", "/")
-    if value.startswith("/") or "\x00" in value:
+    if len(value) > 4096 or value.startswith("/") or any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise HTTPException(400, "Path must be relative to the remote root")
     parts = [p for p in value.split("/") if p not in ("", ".")]
     if any(p == ".." for p in parts):
@@ -104,7 +215,7 @@ def remote_path(remote: str, path: str) -> str:
     config = parsed_config()
     if not config.has_section(remote):
         raise HTTPException(404, f"Remote '{remote}' does not exist")
-    meta = state().get("local_roots", {}).get(remote)
+    meta = state().get("local_roots", {}).get(remote) if config[remote].get("type") == "local" else None
     if meta:
         root = Path(meta).resolve()
         if not root.is_relative_to(TEST_ROOT):
@@ -116,6 +227,41 @@ def remote_path(remote: str, path: str) -> str:
     return f"{remote}:{rel}" if rel else f"{remote}:"
 
 
+def storage_location(remote: str, path: str, visited: frozenset[str] = frozenset()) -> tuple[str, str]:
+    if remote in visited:
+        raise HTTPException(400, "Remote alias cycle detected")
+    config = parsed_config()
+    remote_path(remote, path)  # Validate existence and confined symlinks.
+    section = config[remote]
+    root = state().get("local_roots", {}).get(remote) if section.get("type") == "local" else None
+    if root:
+        return "local", str((Path(root) / safe_relative(path)).resolve())
+    if section.get("type") == "alias":
+        base = section.get("remote", "")
+        if ":" in base and not base.startswith("/"):
+            target, _, prefix = base.partition(":")
+            if config.has_section(target):
+                return storage_location(target, "/".join(filter(None, [prefix.rstrip("/"), path])), visited | {remote})
+        if base.startswith("/"):
+            return "local", str((Path(base) / path).resolve())
+        raise HTTPException(400, "Alias must reference a configured remote or an absolute local root")
+    if section.get("type") == "local":
+        return "local", str(Path(path).resolve())
+    identity = json.dumps(dict(section), sort_keys=True)
+    return identity, safe_relative(path)
+
+
+def ensure_separate_locations(source_remote: str, source_path: str, destination_remote: str, destination_path: str):
+    source_store, source = storage_location(source_remote, source_path)
+    destination_store, destination = storage_location(destination_remote, destination_path)
+    if source_store != destination_store:
+        return
+    source = source.rstrip("/")
+    destination = destination.rstrip("/")
+    if source == destination or not source or not destination or source.startswith(destination + "/") or destination.startswith(source + "/"):
+        raise HTTPException(400, "Source and destination must not overlap on the same storage")
+
+
 def job_destination_path(source_path: str, destination_remote: str, destination_path: str) -> str:
     destination = safe_relative(destination_path)
     if destination:
@@ -125,38 +271,38 @@ def job_destination_path(source_path: str, destination_remote: str, destination_
         source = safe_relative(source_path)
         bucket_name = source.rsplit("/", 1)[-1]
         if not bucket_name:
-            raise HTTPException(400, "Per copiare nella radice di un remote S3, seleziona una cartella sorgente con nome oppure scegli un bucket di destinazione.")
+            raise HTTPException(400, "To copy to an S3 root, select a named source folder or choose a destination bucket.")
         return bucket_name
     return destination
 
 
 class RemoteInput(BaseModel):
-    name: str
-    type: str
-    options: dict[str, str] = Field(default_factory=dict)
+    name: str = Field(min_length=1, max_length=255)
+    type: str = Field(min_length=1, max_length=64)
+    options: dict[str, str] = Field(default_factory=dict, max_length=200)
     test_root: bool = False
 
 
 class ConfigInput(BaseModel):
-    content: str
+    content: str = Field(max_length=1024 * 1024)
 
 
 class TransferInput(BaseModel):
-    source_remote: str
-    source_path: str = ""
-    destination_remote: str
-    destination_path: str = ""
+    source_remote: str = Field(min_length=1, max_length=64)
+    source_path: str = Field(default="", max_length=4096)
+    destination_remote: str = Field(min_length=1, max_length=64)
+    destination_path: str = Field(default="", max_length=4096)
     mode: str = "move"
 
 
 class JobInput(BaseModel):
-    name: str
-    source_remote: str
-    source_path: str = ""
-    destination_remote: str
-    destination_path: str = ""
+    name: str = Field(min_length=1, max_length=255)
+    source_remote: str = Field(min_length=1, max_length=64)
+    source_path: str = Field(default="", max_length=4096)
+    destination_remote: str = Field(min_length=1, max_length=64)
+    destination_path: str = Field(default="", max_length=4096)
     mode: str = "copy"
-    cron: str | None = None
+    cron: str | None = Field(default=None, max_length=128)
     schedule_enabled: bool = False
     schedule_sync_confirmed: bool = False
 
@@ -166,11 +312,11 @@ class RunInput(BaseModel):
 
 
 class DownloadSelectionInput(BaseModel):
-    paths: list[str]
+    paths: list[str] = Field(min_length=1, max_length=200)
 
 
 class DeleteSelectionInput(BaseModel):
-    paths: list[str]
+    paths: list[str] = Field(min_length=1, max_length=200)
 
 
 class BucketInput(BaseModel):
@@ -200,6 +346,8 @@ def parse_cron_field(value: str, minimum: int, maximum: int) -> set[int]:
 
 
 def validate_cron(expression: str) -> list[set[int]]:
+    if len(expression) > 128:
+        raise ValueError("Cron expression exceeds 128 characters")
     fields = expression.split()
     if len(fields) != 5:
         raise ValueError("Use five cron fields: minute hour day month weekday")
@@ -226,14 +374,25 @@ def _cron_fields_match(fields: list[str], minute: set[int], hour: set[int], day:
 
 
 def next_cron_run(expression: str, after: datetime | None = None) -> str | None:
-    now = after or datetime.now().astimezone()
+    now = after or datetime.now(timezone.utc)
+    return _next_cron_run(expression, now.replace(second=0, microsecond=0))
+
+
+@lru_cache(maxsize=256)
+def _next_cron_run(expression: str, now: datetime) -> str | None:
     fields = expression.split()
     minute, hour, day, month, weekday = validate_cron(expression)
-    candidate = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-    for _ in range(60 * 24 * 366 * 5):
-        if _cron_fields_match(fields, minute, hour, day, month, weekday, candidate):
-            return candidate.isoformat()
-        candidate += timedelta(minutes=1)
+    # Inspect days first, then only scheduled hours/minutes (not 2.6M minutes).
+    candidate = now.replace(hour=0, minute=0)
+    for offset in range(366 * 5):
+        date = candidate + timedelta(days=offset)
+        if not _cron_fields_match(fields, {0}, {0}, day, month, weekday, date):
+            continue
+        for h in sorted(hour):
+            for m in sorted(minute):
+                result = date.replace(hour=h, minute=m)
+                if result > now:
+                    return result.isoformat()
     return None
 
 
@@ -244,6 +403,7 @@ def operation_snapshot() -> list[dict[str, Any]]:
             finished = operation.get("finished_at")
             if finished and datetime.fromisoformat(finished).timestamp() < cutoff:
                 del OPERATIONS[operation_id]
+                CANCEL_EVENTS.pop(operation_id, None)
         return [dict(value) for value in OPERATIONS.values()]
 
 
@@ -275,23 +435,32 @@ def parse_rclone_stats_line(line: str) -> dict[str, Any] | None:
 
 
 def run_tracked(operation_id: str, args: list[str], job_id: str | None = None) -> None:
+    with config_use():
+        _run_tracked(operation_id, args, job_id)
+
+
+def _run_tracked(operation_id: str, args: list[str], job_id: str | None = None) -> None:
     with OPERATIONS_LOCK:
         operation = OPERATIONS[operation_id]
         operation["status"] = "running"
         operation["started_at"] = datetime.now(timezone.utc).isoformat()
     command = ["rclone", *args, "--config", str(CONFIG), "--log-level", "ERROR", "--stats", "1s", "--stats-one-line", "--stats-log-level", "ERROR"]
+    process = None
+    reader = None
     try:
-        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        if CANCEL_EVENTS[operation_id].is_set():
+            raise RuntimeError("Operation cancelled")
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, start_new_session=True,
                                    env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"})
-        diagnostics: list[str] = []
+        diagnostics = deque(maxlen=32)
         def read_progress() -> None:
             if not process.stderr:
                 return
-            for line in process.stderr:
+            for line in iter(lambda: process.stderr.readline(4096), ""):
                 stats = parse_rclone_stats_line(line)
                 if stats is None:
                     if line.strip():
-                        diagnostics.append(line.strip())
+                        diagnostics.append(line.strip()[-2000:])
                     continue
                 with OPERATIONS_LOCK:
                     operation = OPERATIONS[operation_id]
@@ -299,16 +468,25 @@ def run_tracked(operation_id: str, args: list[str], job_id: str | None = None) -
         reader = threading.Thread(target=read_progress, daemon=True)
         reader.start()
         try:
-            process.wait(timeout=7200)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            raise RuntimeError("L’operazione ha superato il limite di 2 ore")
+            deadline = time.monotonic() + 7200
+            while process.poll() is None:
+                if CANCEL_EVENTS[operation_id].wait(.2):
+                    kill_process(process)
+                    process.wait(timeout=5)
+                    raise RuntimeError("Operation cancelled")
+                if time.monotonic() > deadline:
+                    kill_process(process)
+                    process.wait(timeout=5)
+                    raise RuntimeError("Operation exceeded the 2-hour limit")
+        finally:
+            if process.poll() is None:
+                kill_process(process)
+                process.wait(timeout=5)
         reader.join(timeout=2)
         if process.returncode:
-            raise RuntimeError(("\n".join(diagnostics) or "rclone operation failed")[-3000:])
+            raise RuntimeError("rclone operation failed; check provider access and available space")
         with OPERATIONS_LOCK:
-            OPERATIONS[operation_id].update({"status": "success", "percentage": 100, "message": "Operazione completata", "finished_at": datetime.now(timezone.utc).isoformat()})
+            OPERATIONS[operation_id].update({"status": "success", "percentage": 100, "message": "Operation completed", "finished_at": datetime.now(timezone.utc).isoformat()})
         if job_id:
             update_job_result(job_id, "success", "Completed successfully")
     except Exception as exc:
@@ -316,6 +494,15 @@ def run_tracked(operation_id: str, args: list[str], job_id: str | None = None) -
             OPERATIONS[operation_id].update({"status": "failed", "message": str(exc)[-3000:], "finished_at": datetime.now(timezone.utc).isoformat()})
         if job_id:
             update_job_result(job_id, "failed", str(exc)[-4000:])
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                kill_process(process)
+            process.wait(timeout=5)
+            if reader is not None:
+                reader.join(timeout=5)
+            if process.stderr:
+                process.stderr.close()
 
 
 def update_job_result(job_id: str, status: str, result: str) -> None:
@@ -327,21 +514,49 @@ def update_job_result(job_id: str, status: str, result: str) -> None:
             save_state(data)
 
 
-def start_operation(label: str, args: list[str], job_id: str | None = None) -> dict[str, Any]:
-    operation_id = uuid.uuid4().hex[:12]
-    operation = {"id": operation_id, "label": label, "status": "queued", "percentage": None,
-                 "bytes": 0, "total_bytes": 0, "transfers": 0, "total_transfers": 0,
-                 "speed": 0, "eta": None, "started_at": None, "message": "In attesa"}
+def start_operations(specs: list[tuple[str, list[str], str | None]]) -> list[dict[str, Any]]:
     with OPERATIONS_LOCK:
-        OPERATIONS[operation_id] = operation
-    threading.Thread(target=run_tracked, args=(operation_id, args, job_id), daemon=True).start()
-    return dict(operation)
+        operation_snapshot()
+        active = sum(op["status"] in ("queued", "running") for op in OPERATIONS.values())
+        if active + len(specs) > MAX_PENDING_OPERATIONS:
+            raise HTTPException(429, "Operation queue is full; retry after current work finishes")
+        # Keep completed history bounded even under frequent small requests.
+        for operation_id in list(OPERATIONS):
+            if len(OPERATIONS) + len(specs) <= 512:
+                break
+            if OPERATIONS[operation_id]["status"] not in ("queued", "running"):
+                OPERATIONS.pop(operation_id)
+                CANCEL_EVENTS.pop(operation_id, None)
+        rows = []
+        for label, args, job_id in specs:
+            operation_id = uuid.uuid4().hex
+            operation = {"id": operation_id, "label": label, "status": "queued", "percentage": None,
+                         "bytes": 0, "total_bytes": 0, "transfers": 0, "total_transfers": 0,
+                         "speed": 0, "eta": None, "started_at": None, "message": "Queued"}
+            OPERATIONS[operation_id] = operation
+            CANCEL_EVENTS[operation_id] = threading.Event()
+            EXECUTOR.submit(run_tracked, operation_id, args, job_id)
+            rows.append(dict(operation))
+        return rows
+
+
+def start_operation(label: str, args: list[str], job_id: str | None = None) -> dict[str, Any]:
+    return start_operations([(label, args, job_id)])[0]
+
+
+@app.post("/api/operations/{operation_id}/cancel")
+def cancel_operation(operation_id: str):
+    with OPERATIONS_LOCK:
+        if operation_id not in CANCEL_EVENTS:
+            raise HTTPException(404, "Operation not found")
+        CANCEL_EVENTS[operation_id].set()
+    return {"cancelled": True}
 
 
 def scheduler_loop() -> None:
     last_minute = ""
-    while True:
-        now = datetime.now().astimezone()
+    while not SCHEDULER_STOP.is_set():
+        now = datetime.now(timezone.utc)
         minute_key = now.strftime("%Y-%m-%d %H:%M")
         if minute_key != last_minute:
             last_minute = minute_key
@@ -362,8 +577,9 @@ def scheduler_loop() -> None:
                             destination_relative = job_destination_path(
                                 source_relative, job["destination_remote"], job["destination_path"]
                             )
-                            if job["source_remote"] == job["destination_remote"] and source_relative == destination_relative:
-                                raise HTTPException(400, "Source and destination must differ")
+                            ensure_separate_locations(job["source_remote"], source_relative, job["destination_remote"], destination_relative)
+                            if job["mode"] == "sync" and not job.get("schedule_sync_confirmed"):
+                                raise HTTPException(409, "Scheduled sync requires deletion consent")
                             source = remote_path(job["source_remote"], source_relative)
                             destination = remote_path(job["destination_remote"], destination_relative)
                         except HTTPException as exc:
@@ -376,25 +592,37 @@ def scheduler_loop() -> None:
                         scheduled.append((dict(job), source, destination))
                 save_state(data)
             for job, source, destination in scheduled:
-                start_operation(f"Job programmato: {job['name']}", [job["mode"], source, destination, "--create-empty-src-dirs"], job["id"])
-        time.sleep(5)
+                try:
+                    start_operation(f"Scheduled job: {job['name']}", [job["mode"], source, destination, "--create-empty-src-dirs"], job["id"])
+                except HTTPException as exc:
+                    update_job_result(job["id"], "failed", str(exc.detail))
+        SCHEDULER_STOP.wait(5)
 
 
 @app.on_event("startup")
 def start_scheduler() -> None:
     global SCHEDULER_STARTED
-    if not SCHEDULER_STARTED:
+    if not SCHEDULER_STARTED and os.environ.get("APP_DISABLE_SCHEDULER") != "1":
         SCHEDULER_STARTED = True
         with LOCK:
             data = state()
             changed = False
             for job in data.get("jobs", []):
                 if job.get("status") == "running":
-                    job.update({"status": "failed", "last_result": "Operazione interrotta dal riavvio dell’app."})
+                    job.update({"status": "failed", "last_result": "Operation interrupted by an application restart."})
                     changed = True
             if changed:
                 save_state(data)
         threading.Thread(target=scheduler_loop, daemon=True).start()
+
+
+@app.on_event("shutdown")
+def stop_operations() -> None:
+    SCHEDULER_STOP.set()
+    with OPERATIONS_LOCK:
+        for event in CANCEL_EVENTS.values():
+            event.set()
+    EXECUTOR.shutdown(wait=True)
 
 
 @app.get("/api/health")
@@ -516,11 +744,13 @@ def remotes():
 
 
 @app.post("/api/remotes")
+@locked
 def create_remote(item: RemoteInput):
     name = safe_remote(item.name)
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", item.type):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_. -]{0,63}", item.type):
         raise HTTPException(400, "Invalid backend type")
     with LOCK:
+        require_config_idle()
         parser = parsed_config()
         existing = parser[name] if parser.has_section(name) and parser[name].get("type") == item.type else {}
         parser[name] = dict(existing)
@@ -545,17 +775,20 @@ def create_remote(item: RemoteInput):
             values = state()
             values.get("local_roots", {}).pop(name, None)
             save_state(values)
-        with CONFIG.open("w", encoding="utf-8") as stream:
-            parser.write(stream)
+        stream = io.StringIO()
+        parser.write(stream)
+        secure_write(CONFIG, stream.getvalue())
     return {"name": name, "type": item.type}
 
 
 @app.get("/api/config")
+@locked
 def get_config():
     return {"content": CONFIG.read_text(encoding="utf-8")}
 
 
 @app.put("/api/config")
+@locked
 def put_config(item: ConfigInput):
     if len(item.content.encode("utf-8")) > 1024 * 1024:
         raise HTTPException(413, "Config file exceeds 1 MiB")
@@ -571,7 +804,8 @@ def put_config(item: ConfigInput):
             raise HTTPException(400, f"Remote '{section}' is missing its type")
     content = normalize_config_passwords(item.content, parser)
     with LOCK:
-        CONFIG.write_text(content, encoding="utf-8")
+        require_config_idle()
+        secure_write(CONFIG, content)
     return {"saved": True, "remotes": len(parser.sections())}
 
 
@@ -595,16 +829,16 @@ def create_bucket(remote: str, item: BucketInput):
     safe_remote(remote)
     name = item.name.strip()
     if not name or name in (".", "..") or not re.fullmatch(r"[^/:\\\x00-\x20\x7f]+", name):
-        raise HTTPException(400, "Inserisci un nome bucket valido, senza slash o caratteri di controllo.")
+        raise HTTPException(400, "Enter a valid bucket name without slashes or control characters.")
 
     config = parsed_config()
     if not config.has_section(remote):
-        raise HTTPException(404, f"Remote '{remote}' non esiste")
+        raise HTTPException(404, f"Remote '{remote}' does not exist")
     backend_type = config[remote].get("type", "").lower()
     if backend_type not in BUCKET_BACKENDS:
-        raise HTTPException(400, f"La creazione di bucket non è supportata per il backend '{backend_type}'.")
+        raise HTTPException(400, f"Bucket creation is not supported for backend '{backend_type}'.")
     if remote in state().get("local_roots", {}):
-        raise HTTPException(400, "La creazione di bucket non è disponibile sui remote locali di test.")
+        raise HTTPException(400, "Bucket creation is not available for local test remotes.")
 
     target = remote_path(remote, name)
     run_rclone(["mkdir", target], timeout=120)
@@ -612,13 +846,13 @@ def create_bucket(remote: str, item: BucketInput):
 
 
 @app.post("/api/transfer")
+@locked
 def transfer(item: TransferInput):
     if item.mode not in ("move", "copy"):
         raise HTTPException(400, "Mode must be move or copy")
     src = remote_path(item.source_remote, item.source_path)
     dst = remote_path(item.destination_remote, item.destination_path)
-    if src == dst:
-        raise HTTPException(400, "Source and destination are the same")
+    ensure_separate_locations(item.source_remote, item.source_path, item.destination_remote, item.destination_path)
     command = "moveto" if item.mode == "move" else "copyto"
     return start_operation(f"{item.mode.title()}: {item.source_path}", [command, src, dst])
 
@@ -628,70 +862,131 @@ def operations():
     return operation_snapshot()
 
 
+class DownloadResponse(FileResponse):
+    """Always release the spool and admission slot, including disconnected clients."""
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
+            DOWNLOAD_SLOTS.release()
+
+
+def copy_remote_to_stream(target: str, output, budget: int, deadline: float) -> int:
+    diagnostics = deque(maxlen=16)
+    with config_use():
+        process = subprocess.Popen(
+            ["rclone", "cat", target, "--config", str(CONFIG), "--log-level", "ERROR"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+            env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"},
+        )
+        expired = threading.Event()
+
+        def terminate():
+            expired.set()
+            if process.poll() is None:
+                kill_process(process)
+
+        timer = threading.Timer(max(.01, deadline - time.monotonic()), terminate)
+        timer.daemon = True
+        timer.start()
+
+        def drain_errors():
+            for chunk in iter(lambda: process.stderr.read(2048), b""):
+                diagnostics.append(chunk)
+
+        reader = threading.Thread(target=drain_errors, daemon=True)
+        reader.start()
+        total = 0
+        try:
+            while chunk := process.stdout.read(256 * 1024):
+                if expired.is_set():
+                    raise HTTPException(504, "Download exceeded the 5-minute limit")
+                total += len(chunk)
+                if total > budget:
+                    raise HTTPException(413, "Downloads are limited to 1 GiB in total")
+                if shutil.disk_usage(DOWNLOAD_ROOT).free < len(chunk) + 64 * 1024 * 1024:
+                    raise HTTPException(507, "Insufficient temporary disk space")
+                output.write(chunk)
+            process.wait(timeout=5)
+            if expired.is_set():
+                raise HTTPException(504, "Download exceeded the 5-minute limit")
+            if process.returncode:
+                raise HTTPException(400, "Could not download remote file; check provider access")
+            return total
+        finally:
+            timer.cancel()
+            if process.poll() is None:
+                kill_process(process)
+            process.wait(timeout=5)
+            reader.join(timeout=5)
+            process.stdout.close()
+            process.stderr.close()
+
+
+def prepare_download(remote: str, paths: list[str], archive: bool):
+    safe_remote(remote)
+    relative_paths = list(dict.fromkeys(safe_relative(path) for path in paths))
+    if any(not path for path in relative_paths):
+        raise HTTPException(400, "A file path is required")
+    if not DOWNLOAD_SLOTS.acquire(blocking=False):
+        raise HTTPException(429, "Two downloads are already active; retry later")
+    spool = None
+    try:
+        descriptor, filename = tempfile.mkstemp(prefix="download-", suffix=".zip" if archive else ".bin", dir=DOWNLOAD_ROOT)
+        os.close(descriptor)
+        spool = Path(filename)
+        deadline = time.monotonic() + DOWNLOAD_TIMEOUT
+        remaining = MAX_DOWNLOAD_BYTES
+        files = []
+        for path in relative_paths:
+            if time.monotonic() >= deadline:
+                raise HTTPException(504, "Download exceeded the 5-minute limit")
+            target = remote_path(remote, path)
+            try:
+                metadata = json.loads(run_rclone(["lsjson", target, "--stat", "--hash=false"], timeout=max(1, int(deadline - time.monotonic()))))
+            except json.JSONDecodeError as exc:
+                raise HTTPException(500, "rclone returned invalid file metadata") from exc
+            if metadata.get("IsDir"):
+                if archive:
+                    continue
+                raise HTTPException(400, "Select a file to download")
+            size = metadata.get("Size", -1)
+            if size >= 0:
+                remaining -= size
+                if remaining < 0:
+                    raise HTTPException(413, "Downloads are limited to 1 GiB in total")
+            files.append((path, target))
+        if not files:
+            raise HTTPException(400, "Select at least one file to download")
+        total = 0
+        if archive:
+            with zipfile.ZipFile(spool, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as output:
+                for path, target in files:
+                    # Retaining paths prevents duplicate basenames in the ZIP.
+                    with output.open(path, "w") as member:
+                        total += copy_remote_to_stream(target, member, MAX_DOWNLOAD_BYTES - total, deadline)
+        else:
+            with spool.open("wb") as output:
+                copy_remote_to_stream(files[0][1], output, MAX_DOWNLOAD_BYTES, deadline)
+        return DownloadResponse(spool, media_type="application/zip" if archive else "application/octet-stream",
+                                filename=f"{remote}-files.zip" if archive else relative_paths[0].rsplit("/", 1)[-1])
+    except BaseException:
+        if spool:
+            spool.unlink(missing_ok=True)
+        DOWNLOAD_SLOTS.release()
+        raise
+
+
 @app.get("/api/download/{remote}")
 def download(remote: str, path: str):
-    target = remote_path(remote, path)
-    filename = safe_relative(path).rsplit("/", 1)[-1]
-    if not filename:
-        raise HTTPException(400, "A file path is required")
-    try:
-        metadata = json.loads(run_rclone(["lsjson", target, "--stat", "--hash=false"]))
-    except json.JSONDecodeError as exc:
-        raise HTTPException(500, "rclone returned invalid file metadata") from exc
-    if metadata.get("IsDir"):
-        raise HTTPException(400, "Select a file to download")
-    try:
-        process = subprocess.Popen(["rclone", "cat", target, "--config", str(CONFIG), "--log-level", "ERROR"],
-                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                   env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"})
-    except OSError as exc:
-        raise HTTPException(500, f"Could not start rclone: {exc}") from exc
-
-    def stream_file():
-        try:
-            while chunk := process.stdout.read(1024 * 256):
-                yield chunk
-        finally:
-            process.stdout.close()
-            process.wait()
-
-    return StreamingResponse(stream_file(), media_type="application/octet-stream",
-                             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"})
+    return prepare_download(remote, [path], False)
 
 
 @app.post("/api/download/{remote}/archive")
 def download_archive(remote: str, item: DownloadSelectionInput):
-    safe_remote(remote)
-    if not item.paths or len(item.paths) > 200:
-        raise HTTPException(400, "Select between 1 and 200 files")
-    paths = list(dict.fromkeys(safe_relative(path) for path in item.paths))
-    temp = tempfile.NamedTemporaryFile(prefix="rclone-download-", suffix=".zip", dir=DATA, delete=False)
-    archive_path = Path(temp.name)
-    temp.close()
-    try:
-        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
-            for path in paths:
-                target = remote_path(remote, path)
-                try:
-                    metadata = json.loads(run_rclone(["lsjson", target, "--stat", "--hash=false"]))
-                except json.JSONDecodeError as exc:
-                    raise HTTPException(500, "rclone returned invalid file metadata") from exc
-                if metadata.get("IsDir"):
-                    continue
-                process = subprocess.Popen(["rclone", "cat", target, "--config", str(CONFIG), "--log-level", "ERROR"],
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                           env={**os.environ, "RCLONE_CONFIG": str(CONFIG), "RCLONE_ASK_PASSWORD": "false"})
-                with archive.open(Path(path).name, "w") as target_file:
-                    while chunk := process.stdout.read(1024 * 256):
-                        target_file.write(chunk)
-                _, error = process.communicate()
-                if process.returncode:
-                    raise HTTPException(400, (error or b"Could not download selected file").decode("utf-8", "replace")[-2000:])
-    except Exception:
-        archive_path.unlink(missing_ok=True)
-        raise
-    return FileResponse(archive_path, media_type="application/zip", filename=f"{remote}-files.zip",
-                        background=BackgroundTask(archive_path.unlink, missing_ok=True))
+    return prepare_download(remote, item.paths, True)
 
 
 @app.post("/api/delete/{remote}")
@@ -711,8 +1006,8 @@ def delete_items(remote: str, item: DeleteSelectionInput):
             raise HTTPException(500, "rclone returned invalid item metadata") from exc
         command = "purge" if metadata.get("IsDir") else "deletefile"
         targets.append((path, target, command))
-    return {"operations": [start_operation(f"Elimina: {Path(path).name}", [command, target])
-                           for path, target, command in targets]}
+    return {"operations": start_operations([(f"Delete: {Path(path).name}", [command, target], None)
+                                            for path, target, command in targets])}
 
 
 @app.get("/api/jobs")
@@ -732,11 +1027,12 @@ def cron_preview(expression: str):
     try:
         validate_cron(expression)
     except (ValueError, TypeError) as exc:
-        raise HTTPException(400, f"Espressione cron non valida: {exc}") from exc
+        raise HTTPException(400, f"Invalid cron expression: {exc}") from exc
     return {"next_run": next_cron_run(expression)}
 
 
 @app.post("/api/jobs")
+@locked
 def create_job(item: JobInput):
     if item.mode not in ("copy", "sync"):
         raise HTTPException(400, "Mode must be copy or sync")
@@ -754,8 +1050,7 @@ def create_job(item: JobInput):
     destination_relative = job_destination_path(source_relative, item.destination_remote, item.destination_path)
     remote_path(item.source_remote, source_relative)
     remote_path(item.destination_remote, destination_relative)
-    if item.source_remote == item.destination_remote and source_relative == destination_relative:
-        raise HTTPException(400, "Source and destination must differ")
+    ensure_separate_locations(item.source_remote, source_relative, item.destination_remote, destination_relative)
     value = {"id": uuid.uuid4().hex[:12], "name": item.name.strip() or "Untitled job",
              "source_remote": item.source_remote, "source_path": source_relative,
              "destination_remote": item.destination_remote, "destination_path": destination_relative,
@@ -767,6 +1062,7 @@ def create_job(item: JobInput):
 
 
 @app.put("/api/jobs/{job_id}")
+@locked
 def update_job(job_id: str, item: JobInput):
     data = state()
     job = next((x for x in data.get("jobs", []) if x["id"] == job_id), None)
@@ -790,8 +1086,7 @@ def update_job(job_id: str, item: JobInput):
     destination_relative = job_destination_path(source_relative, item.destination_remote, item.destination_path)
     remote_path(item.source_remote, source_relative)
     remote_path(item.destination_remote, destination_relative)
-    if item.source_remote == item.destination_remote and source_relative == destination_relative:
-        raise HTTPException(400, "Source and destination must differ")
+    ensure_separate_locations(item.source_remote, source_relative, item.destination_remote, destination_relative)
     job.update({"name": item.name.strip() or "Untitled job", "source_remote": item.source_remote,
                 "source_path": source_relative, "destination_remote": item.destination_remote,
                 "destination_path": destination_relative, "mode": item.mode,
@@ -802,6 +1097,7 @@ def update_job(job_id: str, item: JobInput):
 
 
 @app.delete("/api/jobs/{job_id}")
+@locked
 def delete_job(job_id: str):
     data = state()
     job = next((x for x in data.get("jobs", []) if x["id"] == job_id), None)
@@ -815,6 +1111,7 @@ def delete_job(job_id: str):
 
 
 @app.post("/api/jobs/{job_id}/run")
+@locked
 def run_job(job_id: str, item: RunInput):
     data = state()
     job = next((x for x in data.get("jobs", []) if x["id"] == job_id), None)
@@ -826,8 +1123,7 @@ def run_job(job_id: str, item: RunInput):
         raise HTTPException(409, "Job is already running")
     source_relative = safe_relative(job["source_path"])
     destination_relative = job_destination_path(source_relative, job["destination_remote"], job["destination_path"])
-    if job["source_remote"] == job["destination_remote"] and source_relative == destination_relative:
-        raise HTTPException(400, "Source and destination must differ")
+    ensure_separate_locations(job["source_remote"], source_relative, job["destination_remote"], destination_relative)
     source = remote_path(job["source_remote"], source_relative)
     destination = remote_path(job["destination_remote"], destination_relative)
     with LOCK:
@@ -835,7 +1131,11 @@ def run_job(job_id: str, item: RunInput):
         job = next((x for x in data.get("jobs", []) if x["id"] == job_id), job)
         job["destination_path"] = destination_relative
         job["status"] = "running"; job["last_run"] = datetime.now(timezone.utc).isoformat(); save_state(data)
-    operation = start_operation(f"Job: {job['name']}", [job["mode"], source, destination, "--create-empty-src-dirs"], job_id)
+    try:
+        operation = start_operation(f"Job: {job['name']}", [job["mode"], source, destination, "--create-empty-src-dirs"], job_id)
+    except HTTPException as exc:
+        update_job_result(job_id, "failed", str(exc.detail))
+        raise
     return {**job, "operation_id": operation["id"]}
 
 

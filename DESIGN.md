@@ -184,3 +184,10 @@ Remote creation and editing use a dedicated full-page workspace rather than a di
 - **Don't** rely on dragging as the only way to transfer a file.
 - **Don't** use blue as a substitute for warning or destructive meaning.
 - **Don't** hide file-versus-folder identity in the table.
+
+
+## Brand assets and motion
+
+The original Rclone Desk mark uses two file panes in ink and action blue joined by a white directional connector. Use the SVG in `frontend/public/images/rclone-desk-mark.svg`; favicon, inverse, and social-preview variants share the same geometry. It is independent artwork and does not reuse rclone or provider trademarks. Asset provenance is recorded in `docs/images/README.md`.
+
+Remote listing waits show a live loading message, a bounded skeleton sequence, and a blue scanning line. Respect reduced-motion preferences and keep user supplied filenames and remote names outside translation. English is the default interface language; Italian is optional.

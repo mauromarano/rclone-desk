@@ -116,7 +116,7 @@ function ModalBackdrop({ children, onClose }) {
 }
 
 function App() {
-  const { i18n } = useTranslation('ui');
+  const { i18n, t } = useTranslation('ui');
   const [remotes, setRemotes] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [providers, setProviders] = useState([]);
@@ -136,6 +136,7 @@ function App() {
   const [pendingFileDeletion, setPendingFileDeletion] = useState(null);
   const [deletionBusy, setDeletionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cancellingOperation, setCancellingOperation] = useState(null);
   const [dropTarget, setDropTarget] = useState(-1);
   const [notice, setNotice] = useState(null);
   const [error, setError] = useState('');
@@ -208,7 +209,7 @@ function App() {
             refresh();
             panes.forEach((pane, index) => pane.remote && loadPane(index, pane.remote, pane.path));
             if (explorer.remote) loadExplorer(explorer.remote, explorer.path);
-            if (operation.status === 'success') flash(`${operation.label}: completato.`);
+            if (operation.status === 'success') flash(t('operation_complete', { label: operation.label }));
             else setError(`${operation.label}: ${operation.message}`);
           }
           operationStatuses.current[operation.id] = operation.status;
@@ -329,7 +330,7 @@ function App() {
           mode,
         }),
       });
-      flash(`${mode === 'copy' ? 'Copia' : 'Spostamento'} di ${entry.name} avviato.`);
+      flash(t('transfer_started', { action: t(mode === 'copy' ? 'Copy' : 'Move'), name: entry.name }));
       trackOperations([operation]);
     } catch (requestError) {
       setError(requestError.message);
@@ -356,7 +357,10 @@ function App() {
     const started = results.filter((result) => result.status === 'fulfilled').length;
     const failed = results.length - started;
     trackOperations(results.filter((result) => result.status === 'fulfilled').map((result) => result.value));
-    if (started) flash(`${started} ${mode === 'copy' ? 'copie' : 'spostamenti'} avviati${failed ? ` · ${failed} non avviati` : ''}.`);
+    if (started) {
+      const verb = mode === 'copy' ? 'copy_count_started' : 'move_count_started';
+      flash(`${t(verb, { count: started })}${failed ? t('failed_count_suffix', { count: failed }) : ''}`);
+    }
     const firstFailure = results.find((result) => result.status === 'rejected');
     if (firstFailure) setError(firstFailure.reason.message);
   };
@@ -366,7 +370,7 @@ function App() {
       method: 'POST', body: JSON.stringify({ name }),
     });
     await loadExplorer(explorer.remote, '');
-    flash(`Bucket “${name}” creato in ${explorer.remote}.`);
+    flash(t('bucket_created', { name, remote: explorer.remote }));
     return true;
   };
 
@@ -380,7 +384,7 @@ function App() {
       const link = document.createElement('a');
       link.href = `/api/download/${encodeURIComponent(explorer.remote)}?path=${encodeURIComponent(paths[0])}`;
       link.click();
-      flash('Download avviato.');
+      flash(t('Download started.'));
       return;
     }
     try {
@@ -397,7 +401,7 @@ function App() {
       link.download = `${explorer.remote}-files.zip`;
       link.click();
       URL.revokeObjectURL(url);
-      flash(`${paths.length} ${paths.length === 1 ? 'file pronto' : 'file pronti'} per il download.`);
+      flash(t('download_ready', { count: paths.length }));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -417,7 +421,7 @@ function App() {
       });
       trackOperations(result.operations);
       setPendingFileDeletion(null);
-      flash(`Eliminazione avviata per ${result.operations.length} ${result.operations.length === 1 ? 'elemento' : 'elementi'}.`);
+      flash(t('deletion_started', { count: result.operations.length }));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -444,7 +448,7 @@ function App() {
       setEditingRemote(null);
       await refresh();
       setView(remoteReturnView);
-      flash('Remote salvato.');
+      flash(t('Remote saved.'));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -457,7 +461,7 @@ function App() {
       setEditingJob(null);
       setView('jobs');
       await refresh();
-      flash(editing ? 'Job aggiornato.' : 'Job creato.');
+      flash(editing ? t('Job updated.') : t('Job created.'));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -469,7 +473,7 @@ function App() {
       await api(`/jobs/${deletingJob.id}`, { method: 'DELETE' });
       setDeletingJob(null);
       await refresh();
-      flash(`Job “${deletingJob.name}” eliminato.`);
+      flash(t('job_deleted', { name: deletingJob.name }));
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -493,8 +497,8 @@ function App() {
         method: 'POST',
         body: JSON.stringify({ confirm_sync_deletions: job.mode === 'sync' && confirmed }),
       });
-      trackOperations([{ id: result.operation_id, label: `Job: ${job.name}`, status: 'queued', percentage: null, message: 'In attesa' }]);
-      flash(`Job “${job.name}” avviato.`);
+      trackOperations([{ id: result.operation_id, label: t('Job: {{name}}', { name: job.name }), status: 'queued', percentage: null, message: 'In attesa' }]);
+      flash(t('job_started', { name: job.name }));
       await refresh();
     } catch (requestError) {
       setError(requestError.message);
@@ -524,7 +528,7 @@ function App() {
     <LocalizeTree><div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#browser" onClick={(event) => { event.preventDefault(); setView('browser'); }}>
-          <span className="brand-mark"><ArrowLeftRight size={19} strokeWidth={2.2} /></span>
+          <span className="brand-mark"><img src="/images/rclone-desk-mark.svg" alt="" /></span>
           <span>Rclone<span className="brand-light"> Desk</span></span>
         </a>
 
@@ -546,7 +550,7 @@ function App() {
           <div className="sidebar-heading"><span>Remote</span><button className="icon-button small" aria-label="Aggiungi remote" onClick={openAddRemote}><Plus size={15} /></button></div>
           {remotes.map((remote) => (
             <button key={remote.name} className={`remote-nav ${view === 'explorer' && explorer.remote === remote.name ? 'is-active' : ''}`} onClick={() => openExplorer(remote.name)}>
-              <HardDrive size={15} /><span>{remote.name}</span>{remote.test && <span className="test-mark">TEST</span>}
+              <HardDrive size={15} /><span data-user-content>{remote.name}</span>{remote.test && <span className="test-mark">TEST</span>}
             </button>
           ))}
           {!remotes.length && <p className="sidebar-empty">Aggiungi un remote per iniziare.</p>}
@@ -562,7 +566,7 @@ function App() {
 
       <div className="main-column">
         <header className="topbar">
-          <div className="breadcrumbs-top"><span>Rclone Desk</span><ChevronRight size={14} /><span>{view === 'browser' ? 'Trasferimenti' : view === 'explorer' ? explorer.remote : view === 'jobs' ? 'Job' : view === 'job-editor' ? (editingJob ? 'Modifica job' : 'Nuovo job') : view === 'remote' ? (editingRemote ? 'Modifica remote' : 'Nuovo remote') : 'Configurazione'}</span></div>
+          <div className="breadcrumbs-top"><span>Rclone Desk</span><ChevronRight size={14} /><span data-user-content={view === 'explorer' ? '' : undefined}>{view === 'browser' ? 'Trasferimenti' : view === 'explorer' ? explorer.remote : view === 'jobs' ? 'Job' : view === 'job-editor' ? (editingJob ? 'Modifica job' : 'Nuovo job') : view === 'remote' ? (editingRemote ? 'Modifica remote' : 'Nuovo remote') : 'Configurazione'}</span></div>
           <div className="topbar-actions">
             {health && <span className="connected-label"><span className="status-dot is-online" />Connesso</span>}
             <button className="icon-button" aria-label="Aggiorna" title="Aggiorna" onClick={refresh}><RefreshCw size={16} /></button>
@@ -658,12 +662,22 @@ function App() {
       )}
       {deletingJob && <DeleteJobConfirm job={deletingJob} onCancel={() => setDeletingJob(null)} onConfirm={deleteJob} />}
       {pendingFileDeletion && <DeleteFilesConfirm key={pendingFileDeletion.stage} deletion={pendingFileDeletion} busy={deletionBusy} onCancel={() => setPendingFileDeletion(null)} onContinue={() => setPendingFileDeletion((current) => current && ({ ...current, stage: 2 }))} onBack={() => setPendingFileDeletion((current) => current && ({ ...current, stage: 1 }))} onConfirm={confirmFileDeletion} remote={explorer.remote} />}
-      <OperationsTray operations={operations.filter((operation) => ['queued', 'running'].includes(operation.status))} />
+      <OperationsTray operations={operations.filter((operation) => ['queued', 'running'].includes(operation.status))} cancelling={cancellingOperation} onCancel={async (id) => {
+        setCancellingOperation(id);
+        try {
+          await api(`/operations/${id}/cancel`, { method: 'POST' });
+        } catch (requestError) {
+          setError(requestError.message);
+        } finally {
+          setCancellingOperation(null);
+        }
+      }} />
     </div></LocalizeTree>
   </LocalizeTree>);
 }
 
 function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, busy, onNavigate, onRefresh, onRemoteChange, onTargetChange, onTargetPathChange, onModeChange, onTransfer, onTransferSelected, onDownloadSelected, onDelete, onCreateBucket }) {
+  const { t } = useTranslation('ui');
   const [showCreateBucket, setShowCreateBucket] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const segments = explorer.path ? explorer.path.split('/') : [];
@@ -676,16 +690,16 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
   return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="explorer-title">
       <div className="page-heading explorer-heading">
-        <div><h1 id="explorer-title">{explorer.remote || 'Esplora remote'}</h1><p>Esplora cartelle e file, poi copiali o spostali verso un altro remote.</p></div>
+        <div><h1 id="explorer-title" data-user-content>{explorer.remote || 'Esplora remote'}</h1><p>Esplora cartelle e file, poi copiali o spostali verso un altro remote.</p></div>
         <div className="explorer-heading-actions">
           {explorer.path === '' && remotes.find((remote) => remote.name === explorer.remote)?.bucket_supported && <button className="secondary-button" onClick={() => setShowCreateBucket(true)}><Plus size={15} />Nuovo bucket</button>}
           <button className="secondary-button" onClick={onRefresh}><RefreshCw size={15} />Aggiorna</button>
         </div>
       </div>
       <section className="explorer-toolbar" aria-label="Trasferimento dal remote">
-        <label className="form-field explorer-source"><span>Remote aperto</span><select value={explorer.remote} onChange={(event) => onRemoteChange(event.target.value)}>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></label>
+        <label className="form-field explorer-source"><span>Remote aperto</span><select value={explorer.remote} onChange={(event) => onRemoteChange(event.target.value)}>{remotes.map((remote) => <option data-user-content key={remote.name} value={remote.name}>{remote.name}</option>)}</select></label>
         <label className="form-field explorer-destination"><span>Destinazione</span><select value={target} onChange={(event) => onTargetChange(event.target.value)}>
-          <option value="">Scegli un remote</option>{destinationChoices.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}
+          <option value="">Scegli un remote</option>{destinationChoices.map((remote) => <option data-user-content key={remote.name} value={remote.name}>{remote.name}</option>)}
         </select></label>
         <label className="form-field explorer-destination-path"><span>Cartella di destinazione</span><input value={targetPath} onChange={(event) => onTargetPathChange(event.target.value)} placeholder="Radice del remote" /></label>
         <div className="segmented-control" role="group" aria-label="Azione sui file">
@@ -696,13 +710,13 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
       <section className="explorer-pane" aria-label={`File in ${explorer.remote}`}>
         <header className="explorer-pathbar" aria-busy={explorer.loading}>
           <nav className="path-crumbs" aria-label="Percorso remoto">
-            <button onClick={() => onNavigate(explorer.remote, '')} aria-label="Radice"><Home size={14} /><span>{explorer.remote || 'Root'}</span></button>
-            {segments.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight size={13} /><button onClick={() => onNavigate(explorer.remote, segments.slice(0, index + 1).join('/'))}>{segment}</button></React.Fragment>)}
+            <button onClick={() => onNavigate(explorer.remote, '')} aria-label="Radice"><Home size={14} /><span data-user-content>{explorer.remote || 'Root'}</span></button>
+            {segments.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight size={13} /><button data-user-content onClick={() => onNavigate(explorer.remote, segments.slice(0, index + 1).join('/'))}>{segment}</button></React.Fragment>)}
           </nav>
-          <span className="explorer-count">{explorer.loading ? <><LoaderCircle size={12} className="explorer-count-spinner" />Lettura…</> : `${explorer.entries.length} elementi`}</span>
+          <span className="explorer-count">{explorer.loading ? <><LoaderCircle size={12} className="explorer-count-spinner" />{t('Reading…')}</> : t('item_count', { count: explorer.entries.length })}</span>
         </header>
         {selectedEntries.length > 0 && <div className="selection-toolbar" role="region" aria-label="Azioni sugli elementi selezionati">
-          <span><strong>{selectedEntries.length}</strong> {selectedEntries.length === 1 ? 'elemento selezionato' : 'elementi selezionati'}</span>
+          <span><strong>{selectedEntries.length}</strong> {t('selected_item_count', { count: selectedEntries.length })}</span>
           <div className="selection-actions">
             <button className="secondary-button compact" disabled={busy || !target} onClick={() => { onTransferSelected(selectedEntries); setSelectedPaths(new Set()); }}>{mode === 'copy' ? <Copy size={14} /> : <ArrowRight size={14} />}{mode === 'copy' ? 'Copia' : 'Sposta'}</button>
             <button className="secondary-button compact" disabled={!selectedFiles.length} onClick={() => onDownloadSelected(selectedFiles)}><Download size={14} />Scarica {selectedFiles.length ? `(${selectedFiles.length})` : ''}</button>
@@ -718,19 +732,19 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
             <tbody>
               {explorer.path && <tr className="parent-row"><td colSpan="6"><button onClick={() => onNavigate(explorer.remote, segments.slice(0, -1).join('/'))}><ArrowRight size={14} className="up-icon" />Cartella superiore</button></td></tr>}
               {sortedEntries.map((entry) => <tr key={entry.path} className="file-row">
-                <td className="selection-column"><input type="checkbox" aria-label={`Seleziona ${entry.name}`} checked={selectedPaths.has(entry.path)} onChange={(event) => setSelectedPaths((current) => { const next = new Set(current); if (event.target.checked) next.add(entry.path); else next.delete(entry.path); return next; })} /></td>
-                <td className="name-cell"><button className="file-name-button" onClick={() => entry.is_dir && onNavigate(explorer.remote, entry.path)} title={entry.is_dir ? `Apri ${entry.name}` : entry.name}>{entry.is_dir ? <Folder size={17} className="folder-icon" /> : <File size={17} className="file-icon" />}<span>{entry.name}</span></button></td>
+                <td className="selection-column"><input type="checkbox" aria-label={t('Select {{name}}', { name: entry.name })} checked={selectedPaths.has(entry.path)} onChange={(event) => setSelectedPaths((current) => { const next = new Set(current); if (event.target.checked) next.add(entry.path); else next.delete(entry.path); return next; })} /></td>
+                <td className="name-cell"><button className="file-name-button" onClick={() => entry.is_dir && onNavigate(explorer.remote, entry.path)} title={entry.is_dir ? t('Open {{name}}', { name: entry.name }) : entry.name}>{entry.is_dir ? <Folder size={17} className="folder-icon" /> : <File size={17} className="file-icon" />}<span data-user-content>{entry.name}</span></button></td>
                 <td className="size-column">{entry.is_dir ? '—' : formatSize(entry.size)}</td><td className="type-column">{entry.is_dir ? 'Cartella' : 'File'}</td><td className="date-column">{formatDate(entry.mod_time)}</td>
                 <td className="explorer-actions-column"><div className="explorer-row-actions">
-                  <button className="row-action" disabled={busy || !target} onClick={() => onTransfer(entry)} aria-label={`${mode === 'copy' ? 'Copia' : 'Sposta'} ${entry.name} verso ${target || 'un altro remote'}`} title={`${mode === 'copy' ? 'Copia' : 'Sposta'} verso ${target || 'un altro remote'}`}>{mode === 'copy' ? <Copy size={15} /> : <ArrowRight size={15} />}<span>{mode === 'copy' ? 'Copia' : 'Sposta'}</span></button>
-                  {!entry.is_dir && <a className="row-action download-action" href={`/api/download/${encodeURIComponent(explorer.remote)}?path=${encodeURIComponent(entry.path)}`} aria-label={`Scarica ${entry.name}`} title="Scarica sul desktop"><Download size={15} /><span>Scarica</span></a>}
-                  <button className="row-action delete-row-action" onClick={() => onDelete([entry])} aria-label={`Elimina ${entry.name}`} title="Elimina elemento"><Trash2 size={15} /><span>Elimina</span></button>
+                  <button className="row-action" disabled={busy || !target} onClick={() => onTransfer(entry)} aria-label={t(mode === 'copy' ? 'Copy {{name}} to {{destination}}' : 'Move {{name}} to {{destination}}', { name: entry.name, destination: target || t('another remote') })} title={t(mode === 'copy' ? 'Copy to {{destination}}' : 'Move to {{destination}}', { destination: target || t('another remote') })}>{mode === 'copy' ? <Copy size={15} /> : <ArrowRight size={15} />}<span>{mode === 'copy' ? 'Copia' : 'Sposta'}</span></button>
+                  {!entry.is_dir && <a className="row-action download-action" href={`/api/download/${encodeURIComponent(explorer.remote)}?path=${encodeURIComponent(entry.path)}`} aria-label={t('Download {{name}}', { name: entry.name })} title="Scarica sul desktop"><Download size={15} /><span>Scarica</span></a>}
+                  <button className="row-action delete-row-action" onClick={() => onDelete([entry])} aria-label={t('Delete {{name}}', { name: entry.name })} title="Elimina elemento"><Trash2 size={15} /><span>Elimina</span></button>
                 </div></td>
               </tr>)}
             </tbody>
           </table>
           {!sortedEntries.length && (explorer.loading ? <div className="explorer-loading" role="status" aria-live="polite">
-            <div className="explorer-loading-message"><LoaderCircle size={17} className="explorer-loading-spinner" /><span>Sto leggendo i file di <strong>{explorer.remote}</strong>…</span></div>
+            <div className="explorer-loading-message"><LoaderCircle size={17} className="explorer-loading-spinner" /><span>{t('Loading files from')} <strong data-user-content>{explorer.remote}</strong>…</span></div>
             <div className="explorer-skeleton" aria-hidden="true">
               {[0, 1, 2, 3].map((row) => <div key={row} className="explorer-skeleton-row"><span className="explorer-skeleton-icon" /><span className="explorer-skeleton-name" /><span className="explorer-skeleton-meta" /></div>)}
             </div>
@@ -744,6 +758,7 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
 }
 
 function CreateBucketDialog({ remote, onCancel, onCreate }) {
+  const { t } = useTranslation('ui');
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -763,7 +778,7 @@ function CreateBucketDialog({ remote, onCancel, onCreate }) {
   };
 
   return <LocalizeTree><ModalBackdrop onClose={saving ? () => {} : onCancel}><section className="dialog create-bucket-dialog" role="dialog" aria-modal="true" aria-labelledby="create-bucket-title">
-    <div className="dialog-heading"><div><h2 id="create-bucket-title">Crea un bucket</h2><p>Il bucket verrà creato alla radice di <strong>{remote}</strong>.</p></div><button type="button" className="icon-button" onClick={onCancel} disabled={saving} aria-label="Chiudi"><X size={17} /></button></div>
+    <div className="dialog-heading"><div><h2 id="create-bucket-title">Crea un bucket</h2><p>{t('bucket_create_explanation', { remote })}</p></div><button type="button" className="icon-button" onClick={onCancel} disabled={saving} aria-label="Chiudi"><X size={17} /></button></div>
     <form onSubmit={submit}>
       <div className="form-field"><label htmlFor="bucket-name">Nome bucket</label><input id="bucket-name" autoComplete="off" autoCapitalize="none" spellCheck="false" required maxLength={255} value={name} onChange={(event) => setName(event.target.value)} placeholder="es. archivio-documenti" /><span>Il nome deve rispettare le regole del provider. Servono credenziali con permesso di creazione.</span></div>
       {error && <p className="create-bucket-error" role="alert"><Database size={15} />{error}</p>}
@@ -772,20 +787,21 @@ function CreateBucketDialog({ remote, onCancel, onCreate }) {
   </section></ModalBackdrop></LocalizeTree>;
 }
 
-function OperationsTray({ operations }) {
+function OperationsTray({ operations, cancelling, onCancel }) {
   if (!operations.length) return null;
   return (<LocalizeTree>
     <section className="operations-tray" aria-label="Operazioni in corso" aria-live="polite">
       {operations.map((operation) => <article className="operation-item" key={operation.id}>
-        <div className="operation-heading"><LoaderCircle size={16} className="spin" /><strong>{operation.label}</strong><span>{operation.percentage == null ? 'In corso' : `${operation.percentage}%`}</span></div>
+        <div className="operation-heading"><LoaderCircle size={16} className="spin" /><strong data-user-content>{operation.label}</strong><span>{operation.percentage == null ? 'In corso' : `${operation.percentage}%`}</span><button className="text-button" type="button" disabled={cancelling === operation.id} onClick={() => onCancel(operation.id)}>{cancelling === operation.id ? 'Cancelling…' : 'Cancel'}</button></div>
         <div className={`operation-progress ${operation.percentage == null ? 'indeterminate' : ''}`} role="progressbar" aria-label={`Avanzamento ${operation.label}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={operation.percentage ?? undefined}><span style={operation.percentage == null ? undefined : { width: `${operation.percentage}%` }} /></div>
-        <div className="operation-details"><span>{operation.percentage == null ? (operation.total_transfers ? `${operation.transfers} di ${operation.total_transfers} file` : 'Calcolo avanzamento…') : `${formatSize(operation.bytes)} di ${formatSize(operation.total_bytes)}`}</span>{operation.speed > 0 && <span>{formatSize(operation.speed)}/s</span>}</div>
+        <div className="operation-details"><span>{operation.percentage == null ? (operation.total_transfers ? t('transfer_count', { count: operation.transfers, total: operation.total_transfers }) : 'Calcolo avanzamento…') : t('progress_size', { current: formatSize(operation.bytes), total: formatSize(operation.total_bytes) })}</span>{operation.speed > 0 && <span>{formatSize(operation.speed)}/s</span>}</div>
       </article>)}
     </section>
   </LocalizeTree>);
 }
 
 function TransferWorkspace({ panes, remotes, mode, busy, dropTarget, onModeChange, onSwapPanes, onRemoteChange, onNavigate, onTransfer, onDrop, onDragEnter, onDragLeave, onRefresh, onAddRemote }) {
+  const { t } = useTranslation('ui');
   return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="transfer-title">
       <div className="page-heading transfer-heading">
@@ -828,12 +844,13 @@ function TransferWorkspace({ panes, remotes, mode, busy, dropTarget, onModeChang
           />
         ))}
       </div>
-      <p className="transfer-help"><span className="help-symbol">i</span>{mode === 'move' ? 'Sposta elimina la sorgente solo dopo un trasferimento riuscito.' : 'Copia non modifica i file presenti nella sorgente; un file omonimo in destinazione può essere sovrascritto.'} Usa il pulsante in ogni riga anche senza drag-and-drop.</p>
+      <p className="transfer-help"><span className="help-symbol">i</span>{mode === 'move' ? t('Sposta elimina la sorgente solo dopo il trasferimento riuscito.') : t('Copia non modifica i file presenti nella sorgente; un file omonimo in destinazione può essere sovrascritto.')} {t('Usa il pulsante in ogni riga anche senza drag-and-drop.')}</p>
     </section>
   </LocalizeTree>);
 }
 
 function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChange, onNavigate, onTransfer, onDrop, onDragEnter, onDragLeave, onRefresh, onAddRemote }) {
+  const { t } = useTranslation('ui');
   const [sort, setSort] = useState({ key: 'name', direction: 'asc' });
   const target = pane.remote ? remotes.find((remote) => remote.name !== pane.remote)?.name : '';
   const segments = pane.path ? pane.path.split('/') : [];
@@ -867,7 +884,7 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
       onDragOver={handleDragOver}
       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onDragLeave(); }}
       onDrop={(event) => onDrop(event, index)}
-      aria-label={`Pannello ${index === 0 ? 'sorgente' : 'destinazione'}`}
+      aria-label={t('Panel {{side}}', { side: t(index === 0 ? 'Source' : 'Destination') })}
     >
       <header className="pane-header">
         <div className="pane-title-line"><span className={`pane-role ${index === 0 ? 'source' : 'destination'}`}>{index === 0 ? 'Sorgente' : 'Destinazione'}</span>
@@ -876,15 +893,15 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
         <label className="remote-picker"><HardDrive size={17} /><span className="sr-only">Remote {index === 0 ? 'sorgente' : 'destinazione'}</span>
           <select value={pane.remote} onChange={(event) => onRemoteChange(index, event.target.value)}>
             <option value="">Seleziona un remote</option>
-            {remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}{remote.test ? ' · test' : ''}</option>)}
+            {remotes.map((remote) => <option data-user-content key={remote.name} value={remote.name}>{remote.name}{remote.test ? ' · test' : ''}</option>)}
           </select>
         </label>
         <nav className="path-crumbs" aria-label="Percorso remoto">
-          <button onClick={() => onNavigate(index, pane.remote, '')} aria-label="Radice"><Home size={14} /><span>{pane.remote || 'Root'}</span></button>
+          <button onClick={() => onNavigate(index, pane.remote, '')} aria-label="Radice"><Home size={14} /><span data-user-content>{pane.remote || 'Root'}</span></button>
           {segments.map((segment, segmentIndex) => (
             <React.Fragment key={`${segment}-${segmentIndex}`}>
               <ChevronRight size={13} aria-hidden="true" />
-              <button onClick={() => onNavigate(index, pane.remote, segments.slice(0, segmentIndex + 1).join('/'))}>{segment}</button>
+              <button data-user-content onClick={() => onNavigate(index, pane.remote, segments.slice(0, segmentIndex + 1).join('/'))}>{segment}</button>
             </React.Fragment>
           ))}
         </nav>
@@ -908,9 +925,9 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
                 className="file-row"
               >
                 <td className="name-cell">
-                  <button className="file-name-button" onDoubleClick={() => entry.is_dir && onNavigate(index, pane.remote, entry.path)} onClick={() => entry.is_dir && onNavigate(index, pane.remote, entry.path)} title={entry.is_dir ? `Apri ${entry.name}` : entry.name}>
+                  <button className="file-name-button" onDoubleClick={() => entry.is_dir && onNavigate(index, pane.remote, entry.path)} onClick={() => entry.is_dir && onNavigate(index, pane.remote, entry.path)} title={entry.is_dir ? t('Open {{name}}', { name: entry.name }) : entry.name}>
                     {entry.is_dir ? <Folder size={17} className="folder-icon" /> : <File size={17} className="file-icon" />}
-                    <span>{entry.name}</span>
+                    <span data-user-content>{entry.name}</span>
                   </button>
                 </td>
                 <td className="size-column">{entry.is_dir ? '—' : formatSize(entry.size)}</td>
@@ -920,8 +937,8 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
                   className="row-action"
                   disabled={busy || !target}
                   onClick={() => onTransfer(index, entry, 1 - index)}
-                  aria-label={`${mode === 'copy' ? 'Copia' : 'Sposta'} ${entry.name} verso ${target || 'l’altro pannello'}`}
-                  title={`${mode === 'copy' ? 'Copia' : 'Sposta'} verso ${target || 'l’altro remote'}`}
+                  aria-label={t(mode === 'copy' ? 'Copy {{name}} to {{destination}}' : 'Move {{name}} to {{destination}}', { name: entry.name, destination: target || t('the other panel') })}
+                  title={t(mode === 'copy' ? 'Copy to {{destination}}' : 'Move to {{destination}}', { destination: target || t('the other remote') })}
                 >{mode === 'copy' ? <Copy size={15} /> : <ArrowRight size={15} />}<span>{mode === 'copy' ? 'Copia' : 'Sposta'}</span></button></td>
               </tr>
             ))}
@@ -937,7 +954,7 @@ function FilePane({ index, pane, remotes, mode, busy, isDropTarget, onRemoteChan
           <div className="empty-state"><HardDrive size={26} /><strong>Nessun remote selezionato</strong><span>Scegli un remote per esplorarne i file.</span>{!remotes.length && <button className="text-button" onClick={onAddRemote}><Plus size={15} /> Aggiungi il primo remote</button>}</div>
         )}
       </div>
-      <footer className="pane-footer"><span>{pane.remote ? `${pane.entries.length} elementi` : 'Seleziona un remote'}</span><span>{index === 0 ? '01 / Sorgente' : '02 / Destinazione'}</span></footer>
+      <footer className="pane-footer"><span>{pane.remote ? t('item_count', { count: pane.entries.length }) : 'Seleziona un remote'}</span><span>{t(index === 0 ? '01 / Sorgente' : '02 / Destinazione')}</span></footer>
     </section>
   </LocalizeTree>);
 }
@@ -950,6 +967,7 @@ function jobErrorSummary(value) {
 }
 
 function JobsWorkspace({ jobs, remotes, busy, onCreate, onEdit, onDelete, onRun }) {
+  const { t } = useTranslation('ui');
   const [errorJob, setErrorJob] = useState(null);
   return (<LocalizeTree>
     <section className="workspace-view" aria-labelledby="jobs-title">
@@ -960,12 +978,12 @@ function JobsWorkspace({ jobs, remotes, busy, onCreate, onEdit, onDelete, onRun 
             <thead><tr><th scope="col">Nome</th><th scope="col">Operazione</th><th scope="col">Percorso</th><th scope="col">Ultimo esito</th><th scope="col">Programmazione</th><th scope="col"><span className="sr-only">Azioni</span></th></tr></thead>
             <tbody>{jobs.map((job) => (
               <tr key={job.id}>
-                <td><strong>{job.name}</strong><span className="job-sub">{job.last_run ? `Ultima esecuzione ${formatDate(job.last_run)}` : 'Non ancora eseguito'}</span></td>
+                <td><strong data-user-content>{job.name}</strong><span className="job-sub">{job.last_run ? t('Last run: {{date}}', { date: formatDate(job.last_run) }) : 'Non ancora eseguito'}</span></td>
                 <td><span className={`job-mode ${job.mode}`}>{job.mode === 'sync' ? 'Sincronizza' : 'Copia'}</span></td>
-                <td><span className="job-route">{job.source_remote}:{job.source_path || '/'}<ArrowRight size={14} />{job.destination_remote}:{job.destination_path || '/'}</span></td>
+                <td><span className="job-route" data-user-content>{job.source_remote}:{job.source_path || '/'}<ArrowRight size={14} />{job.destination_remote}:{job.destination_path || '/'}</span></td>
                 <td><span className={`job-status ${job.status}`}><span className="status-dot" />{job.status === 'success' ? 'Completato' : job.status === 'failed' ? 'Errore' : job.status === 'running' ? 'In esecuzione' : 'Pronto'}</span>{job.status === 'failed' && job.last_result && <div className="job-error-summary"><span>{jobErrorSummary(job.last_result)}</span><button type="button" className="job-error-details-button" onClick={() => setErrorJob(job)}>Dettagli errore</button></div>}</td>
-                <td>{job.schedule_enabled ? <span className="schedule-summary"><code>{job.cron}</code><small>Prossimo: {formatScheduledTime(job.next_run)} · fuso server</small></span> : <span className="job-sub">Manuale</span>}</td>
-                <td><div className="job-actions"><button className="run-button" disabled={busy || job.status === 'running'} onClick={() => onRun(job)}><Play size={14} fill="currentColor" />Esegui</button><button className="icon-button small" disabled={job.status === 'running'} onClick={() => onEdit(job)} aria-label={`Modifica ${job.name}`} title="Modifica job"><Pencil size={15} /></button><button className="icon-button small job-delete-button" disabled={job.status === 'running'} onClick={() => onDelete(job)} aria-label={`Elimina ${job.name}`} title="Elimina job"><Trash2 size={15} /></button></div></td>
+                <td>{job.schedule_enabled ? <span className="schedule-summary"><code data-user-content>{job.cron}</code><small>{t('Next: {{date}} · server time', { date: formatScheduledTime(job.next_run) })}</small></span> : <span className="job-sub">Manuale</span>}</td>
+                <td><div className="job-actions"><button className="run-button" disabled={busy || job.status === 'running'} onClick={() => onRun(job)}><Play size={14} fill="currentColor" />Esegui</button><button className="icon-button small" disabled={job.status === 'running'} onClick={() => onEdit(job)} aria-label={t('Edit {{name}}', { name: job.name })} title="Modifica job"><Pencil size={15} /></button><button className="icon-button small job-delete-button" disabled={job.status === 'running'} onClick={() => onDelete(job)} aria-label={t('Delete {{name}}', { name: job.name })} title="Elimina job"><Trash2 size={15} /></button></div></td>
               </tr>
             ))}</tbody>
           </table>
@@ -994,7 +1012,7 @@ function JobErrorDetails({ job, onClose }) {
   return (<LocalizeTree>
     <ModalBackdrop onClose={onClose}>
       <section className="dialog job-error-dialog" role="dialog" aria-modal="true" aria-labelledby="job-error-title">
-        <div className="dialog-heading"><div><h2 id="job-error-title">Dettagli errore</h2><p>Job: <strong>{job.name}</strong></p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Chiudi dettagli errore"><X size={17} /></button></div>
+        <div className="dialog-heading"><div><h2 id="job-error-title">Dettagli errore</h2><p>Job: <strong data-user-content>{job.name}</strong></p></div><button type="button" className="icon-button" onClick={onClose} aria-label="Chiudi dettagli errore"><X size={17} /></button></div>
         <div className="job-error-callout"><TriangleAlert size={17} /><span>{jobErrorSummary(job.last_result || '')}</span></div>
         <pre className="job-error-log"><code>{job.last_result || 'Il job è fallito senza un messaggio di dettaglio.'}</code></pre>
         <div className="job-error-footer"><span aria-live="polite">{copyError || (copied ? 'Log copiato negli appunti.' : 'Il log completo è disponibile qui sopra.')}</span><div className="dialog-actions"><button type="button" className="secondary-button" onClick={copyErrorDetails}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? 'Copiato' : 'Copia log'}</button><button type="button" className="primary-button" onClick={onClose}>Chiudi</button></div></div>
@@ -1004,6 +1022,7 @@ function JobErrorDetails({ job, onClose }) {
 }
 
 function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh, language, onLanguageChange }) {
+  const { t } = useTranslation('ui');
   const [config, setConfig] = useState('');
   const [saving, setSaving] = useState(false);
   const [configVisible, setConfigVisible] = useState(false);
@@ -1031,7 +1050,7 @@ function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh, l
       const savedConfig = await api('/config');
       setConfig(savedConfig.content);
       await refresh();
-      flash(`Configurazione salvata · ${result.remotes} remote`);
+      flash(t('configuration_saved', { count: result.remotes }));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -1056,9 +1075,9 @@ function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh, l
         <label className="form-field language-picker"><span>Lingua</span><select value={language.startsWith('it') ? 'it' : 'en'} onChange={(event) => onLanguageChange(event.target.value)}><option value="en">English</option><option value="it">Italiano</option></select></label>
       </section>
       <section className="settings-section" aria-labelledby="remote-list-title">
-        <div className="section-heading"><div><h2 id="remote-list-title">Remote configurati</h2><p>Le credenziali restano nel file privato di rclone.</p></div><span className="section-count">{remotes.length} {remotes.length === 1 ? 'remote' : 'remote'}</span></div>
+        <div className="section-heading"><div><h2 id="remote-list-title">Remote configurati</h2><p>Le credenziali restano nel file privato di rclone.</p></div><span className="section-count">{t('remote_count', { count: remotes.length })}</span></div>
         {remotes.length ? <div className="remote-table-wrap"><table className="remote-table"><thead><tr><th scope="col">Remote</th><th scope="col">Backend</th><th scope="col">Stato</th><th scope="col"><span className="sr-only">Modifica</span></th></tr></thead><tbody>{remotes.map((remote) => (
-          <tr key={remote.name}><td><span className="remote-name"><HardDrive size={16} />{remote.name}</span></td><td>{remote.type}{remote.test && <span className="test-badge">Remote di test</span>}</td><td><span className="job-status success"><span className="status-dot" />Configurato</span></td><td><button className="secondary-button compact" onClick={() => onEdit(remote)}>Modifica</button></td></tr>
+          <tr key={remote.name}><td><span className="remote-name"><HardDrive size={16} /><span data-user-content>{remote.name}</span></span></td><td><span data-user-content>{remote.type}</span>{remote.test && <span className="test-badge">Remote di test</span>}</td><td><span className="job-status success"><span className="status-dot" />Configurato</span></td><td><button className="secondary-button compact" onClick={() => onEdit(remote)}>Modifica</button></td></tr>
         ))}</tbody></table></div> : <div className="empty-remote"><HardDrive size={24} /><strong>Nessun remote</strong><span>Crea un remote con il wizard o importa un file rclone.conf.</span></div>}
       </section>
 
@@ -1078,6 +1097,7 @@ function SettingsWorkspace({ remotes, onAdd, onEdit, flash, setError, refresh, l
 }
 
 function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
+  const { t } = useTranslation('ui');
   const [name, setName] = useState(remote?.name || '');
   const [type, setType] = useState(remote?.type || 'local');
   const [providerSearch, setProviderSearch] = useState('');
@@ -1144,15 +1164,15 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
       </div>
       <form className="remote-form-shell" onSubmit={submit}>
         <div className="remote-form-intro"><h2>Dettagli della connessione</h2><p>Il nome identifica questo remote nei trasferimenti e nelle configurazioni.</p></div>
-        <div className="form-field"><label htmlFor="remote-name">Nome remote</label><input id="remote-name" required disabled={Boolean(remote)} value={name} onChange={(event) => setName(event.target.value)} pattern="[A-Za-z0-9_.-]{1,64}" placeholder="es. archivio" /><span>Lettere, numeri, punto, trattino e underscore.</span></div>
+        <div className="form-field"><label htmlFor="remote-name">Nome remote</label><input id="remote-name" required disabled={Boolean(remote)} value={name} onChange={(event) => setName(event.target.value)} pattern={"[A-Za-z0-9_][A-Za-z0-9_.\\-]{0,63}"} placeholder="es. archivio" /><span>Lettere, numeri, punto, trattino e underscore.</span></div>
         <div className="provider-picker">
           <div className="provider-picker-heading">
             <div><h3 id="provider-picker-title">Provider</h3><p>Scegli il servizio da collegare al remote.</p></div>
-            <span>{sortedProviders.length} disponibili</span>
+            <span>{t('provider_count', { count: sortedProviders.length })}</span>
           </div>
           <label className="provider-search-label" htmlFor="provider-search">Cerca tra i provider</label>
           <div className="provider-search-input"><Search size={17} aria-hidden="true" /><input id="provider-search" type="search" disabled={Boolean(remote)} value={providerSearch} onChange={(event) => { setProviderSearch(event.target.value); setShowAllProviders(false); }} placeholder="Nome o descrizione, per esempio S3" /></div>
-          <span className="provider-search-status" aria-live="polite">{remote ? 'Il provider configurato non è modificabile.' : providerSearch.trim() ? filteredProviders.length ? `${filteredProviders.length} risultati` : 'Nessun provider trovato.' : 'Cerca per nome o descrizione.'}</span>
+          <span className="provider-search-status" aria-live="polite">{remote ? t('Configured provider cannot be changed.') : providerSearch.trim() ? filteredProviders.length ? t('result_count', { count: filteredProviders.length }) : 'Nessun provider trovato.' : 'Cerca per nome o descrizione.'}</span>
           {showingProviderResults ? (
             <>
               <div className="provider-results-heading"><strong>{providerSearch.trim() ? 'Risultati' : 'Tutti i provider'}</strong><span>{filteredProviders.length}</span></div>
@@ -1161,7 +1181,7 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
                   const providerName = provider.Name || provider.name;
                   const isSelected = providerName === type;
                   return <button key={providerName} type="button" className={`provider-result ${isSelected ? 'is-selected' : ''}`} aria-pressed={isSelected} onClick={() => { setType(providerName); setProviderSearch(''); setShowAllProviders(false); setTestRoot(providerName === 'local'); setOptions({}); }}>
-                    <span className="provider-result-copy"><strong className="provider-result-name">{providerName}</strong>{provider.Description && <span className="provider-result-description">{provider.Description}</span>}</span>
+                    <span className="provider-result-copy"><strong className="provider-result-name" data-user-content>{providerName}</strong>{provider.Description && <span className="provider-result-description" data-user-content>{provider.Description}</span>}</span>
                     {isSelected && <Check size={16} aria-hidden="true" />}
                   </button>;
                 }) : <div className="provider-results-empty"><span>Nessun provider corrisponde alla ricerca.</span><button type="button" className="text-button" onClick={() => { setProviderSearch(''); setShowAllProviders(false); }}>Cancella ricerca</button></div>}
@@ -1170,13 +1190,13 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
           ) : (
             <div className="provider-current" role="status">
               <span className="provider-current-icon"><HardDrive size={17} /></span>
-              <span className="provider-current-copy"><small>Provider selezionato</small><strong>{selected?.Name || type}</strong>{selected?.Description && <span>{selected.Description}</span>}</span>
+              <span className="provider-current-copy"><small>Provider selezionato</small><strong data-user-content>{selected?.Name || type}</strong>{selected?.Description && <span data-user-content>{selected.Description}</span>}</span>
               {remote ? <span className="provider-current-status"><Check size={15} />Configurato</span> : <button type="button" className="secondary-button compact" onClick={() => setShowAllProviders(true)}><Search size={14} />Cambia</button>}
             </div>
           )}
         </div>
         {showingProviderResults ? (
-          <p className="provider-selection-hint" role="status">Provider attuale: <strong>{selected?.Name || type}</strong>. Seleziona un risultato per configurare la connessione.</p>
+          <p className="provider-selection-hint" role="status">{t('Current provider: {{name}}. Select a result to configure the connection.', { name: selected?.Name || type })}</p>
         ) : (
           <>
             {type === 'local' && <label className="test-root-check"><input type="checkbox" checked={testRoot} onChange={(event) => setTestRoot(event.target.checked)} /><span><strong>Remote locale confinato</strong><small>Limita i file di test alla cartella dati dell’app.</small></span></label>}
@@ -1204,6 +1224,7 @@ function RemoteWorkspace({ providers, remote, onCancel, onSubmit }) {
 }
 
 function FolderPicker({ remote, initialPath, onCancel, onSelect }) {
+  const { t } = useTranslation('ui');
   const [path, setPath] = useState(initialPath || '');
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1225,16 +1246,16 @@ function FolderPicker({ remote, initialPath, onCancel, onSelect }) {
   return (<LocalizeTree>
     <ModalBackdrop onClose={onCancel}>
       <section className="dialog folder-picker" role="dialog" aria-modal="true" aria-labelledby="folder-picker-title">
-        <div className="dialog-heading"><div><h2 id="folder-picker-title">Scegli una cartella</h2><p>Remote <strong>{remote}</strong> · seleziona una cartella da usare nel job.</p></div><button type="button" className="icon-button" onClick={onCancel} aria-label="Chiudi"><X size={17} /></button></div>
-        <nav className="folder-picker-breadcrumbs" aria-label="Percorso cartelle"><button type="button" onClick={() => openPath('')}>{remote} · radice</button>{parts.map((part, index) => <React.Fragment key={`${part}-${index}`}><ChevronRight size={13} /><button type="button" onClick={() => openPath(parts.slice(0, index + 1).join('/'))}>{part}</button></React.Fragment>)}</nav>
+        <div className="dialog-heading"><div><h2 id="folder-picker-title">Scegli una cartella</h2><p>{t('folder_picker_intro', { remote })}</p></div><button type="button" className="icon-button" onClick={onCancel} aria-label="Chiudi"><X size={17} /></button></div>
+        <nav className="folder-picker-breadcrumbs" aria-label="Percorso cartelle"><button type="button" onClick={() => openPath('')}>{t('remote_root', { remote })}</button>{parts.map((part, index) => <React.Fragment key={`${part}-${index}`}><ChevronRight size={13} /><button data-user-content type="button" onClick={() => openPath(parts.slice(0, index + 1).join('/'))}>{part}</button></React.Fragment>)}</nav>
         <div className="folder-picker-list" aria-live="polite">
           {path && <button type="button" className="folder-picker-entry folder-picker-parent" onClick={() => openPath(parts.slice(0, -1).join('/'))}><ArrowLeft size={15} /><span>Cartella superiore</span></button>}
           {loading ? <div className="folder-picker-state"><LoaderCircle size={16} className="spin" />Caricamento cartelle…</div>
             : error ? <div className="folder-picker-state folder-picker-error"><TriangleAlert size={16} />{error}</div>
-              : entries.length ? entries.map((entry) => <button type="button" className="folder-picker-entry" key={entry.path} onClick={() => openPath(entry.path)}><Folder size={16} /><span>{entry.name}</span><ChevronRight size={15} /></button>)
+              : entries.length ? entries.map((entry) => <button type="button" className="folder-picker-entry" key={entry.path} onClick={() => openPath(entry.path)}><Folder size={16} /><span data-user-content>{entry.name}</span><ChevronRight size={15} /></button>)
                 : <div className="folder-picker-state">Nessuna sottocartella in questo percorso.</div>}
         </div>
-        <div className="folder-picker-selection"><span>Cartella selezionata</span><strong>{path || 'Radice del remote'}</strong></div>
+        <div className="folder-picker-selection"><span>Cartella selezionata</span><strong>{path ? <span data-user-content>{path}</span> : 'Radice del remote'}</strong></div>
         <div className="dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>Annulla</button><button type="button" className="primary-button" onClick={() => onSelect(path)}>Usa questa cartella</button></div>
       </section>
     </ModalBackdrop>
@@ -1316,9 +1337,9 @@ function JobWorkspace({ remotes, job, onCancel, onSubmit }) {
         <section className="job-editor-section" aria-labelledby="job-route-title">
           <div className="job-section-heading"><h2 id="job-route-title">Percorso</h2><p>Seleziona i remote e le cartelle di origine e destinazione.</p></div>
           <div className="job-route-grid">
-            <div className="job-route-side"><span className="job-route-label">Origine</span><div className="form-field"><label htmlFor="job-source">Remote sorgente</label><select id="job-source" value={sourceRemote} onChange={(event) => { setSourceRemote(event.target.value); setSourcePath(''); }} required>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div><div className="form-field"><label htmlFor="job-source-path">Cartella sorgente</label><div className="folder-path-control"><input id="job-source-path" value={sourcePath || 'Radice del remote'} readOnly aria-label={`Cartella sorgente: ${sourcePath || 'radice del remote'}`} /><button type="button" className="secondary-button" onClick={() => setFolderPicker({ side: 'source', remote: sourceRemote, path: sourcePath })} disabled={!sourceRemote}><Folder size={14} />Sfoglia</button></div></div></div>
+            <div className="job-route-side"><span className="job-route-label">Origine</span><div className="form-field"><label htmlFor="job-source">Remote sorgente</label><select id="job-source" value={sourceRemote} onChange={(event) => { setSourceRemote(event.target.value); setSourcePath(''); }} required>{remotes.map((remote) => <option data-user-content key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div><div className="form-field"><label htmlFor="job-source-path">Cartella sorgente</label><div className="folder-path-control"><input id="job-source-path" value={sourcePath || 'Radice del remote'} readOnly aria-label={`Cartella sorgente: ${sourcePath || 'radice del remote'}`} /><button type="button" className="secondary-button" onClick={() => setFolderPicker({ side: 'source', remote: sourceRemote, path: sourcePath })} disabled={!sourceRemote}><Folder size={14} />Sfoglia</button></div></div></div>
             <div className="job-route-connector" aria-hidden="true"><ArrowRight size={20} /></div>
-            <div className="job-route-side destination"><span className="job-route-label">Destinazione</span><div className="form-field"><label htmlFor="job-destination">Remote destinazione</label><select id="job-destination" value={destinationRemote} onChange={(event) => { setDestinationRemote(event.target.value); setDestinationPath(''); }} required>{remotes.map((remote) => <option key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div><div className="form-field"><label htmlFor="job-destination-path">Cartella destinazione</label><div className="folder-path-control"><input id="job-destination-path" value={destinationPath || 'Radice del remote'} readOnly aria-label={`Cartella destinazione: ${destinationPath || 'radice del remote'}`} /><button type="button" className="secondary-button" onClick={() => setFolderPicker({ side: 'destination', remote: destinationRemote, path: destinationPath })} disabled={!destinationRemote}><Folder size={14} />Sfoglia</button></div>{destinationIsS3Root && (sourceFolderName ? <span className="folder-path-hint">Bucket di destinazione: <strong>{sourceFolderName}</strong>. Rclone lo creerà se non esiste e se il remote consente la creazione.</span> : <span className="folder-path-hint is-warning">Seleziona una cartella sorgente con nome oppure scegli un bucket esistente.</span>)}</div></div>
+            <div className="job-route-side destination"><span className="job-route-label">Destinazione</span><div className="form-field"><label htmlFor="job-destination">Remote destinazione</label><select id="job-destination" value={destinationRemote} onChange={(event) => { setDestinationRemote(event.target.value); setDestinationPath(''); }} required>{remotes.map((remote) => <option data-user-content key={remote.name} value={remote.name}>{remote.name}</option>)}</select></div><div className="form-field"><label htmlFor="job-destination-path">Cartella destinazione</label><div className="folder-path-control"><input id="job-destination-path" value={destinationPath || 'Radice del remote'} readOnly aria-label={`Cartella destinazione: ${destinationPath || 'radice del remote'}`} /><button type="button" className="secondary-button" onClick={() => setFolderPicker({ side: 'destination', remote: destinationRemote, path: destinationPath })} disabled={!destinationRemote}><Folder size={14} />Sfoglia</button></div>{destinationIsS3Root && (sourceFolderName ? <span className="folder-path-hint">Bucket di destinazione: <strong>{sourceFolderName}</strong>. Rclone lo creerà se non esiste e se il remote consente la creazione.</span> : <span className="folder-path-hint is-warning">Seleziona una cartella sorgente con nome oppure scegli un bucket esistente.</span>)}</div></div>
           </div>
         </section>
         <section className="job-editor-section" aria-labelledby="job-schedule-title">
@@ -1339,10 +1360,12 @@ function JobWorkspace({ remotes, job, onCancel, onSubmit }) {
 }
 
 function DeleteJobConfirm({ job, onCancel, onConfirm }) {
-  return <LocalizeTree><ModalBackdrop onClose={onCancel}><section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-job-title" aria-describedby="delete-job-description"><div className="warning-mark"><Trash2 size={20} /></div><h2 id="delete-job-title">Eliminare questo job?</h2><p id="delete-job-description">“{job.name}” verrà rimosso insieme alla sua programmazione. L’operazione non modifica i file nei remote.</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>Annulla</button><button className="danger-button" onClick={onConfirm}>Elimina job</button></div></section></ModalBackdrop></LocalizeTree>;
+  const { t } = useTranslation('ui');
+  return <LocalizeTree><ModalBackdrop onClose={onCancel}><section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-job-title" aria-describedby="delete-job-description"><div className="warning-mark"><Trash2 size={20} /></div><h2 id="delete-job-title">Eliminare questo job?</h2><p id="delete-job-description">{t('delete_job_confirmation', { name: job.name })}</p><div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>Annulla</button><button className="danger-button" onClick={onConfirm}>Elimina job</button></div></section></ModalBackdrop></LocalizeTree>;
 }
 
 function DeleteFilesConfirm({ deletion, busy, onCancel, onContinue, onBack, onConfirm, remote }) {
+  const { t } = useTranslation('ui');
   const folders = deletion.entries.filter((entry) => entry.is_dir);
   const count = deletion.entries.length;
   const names = deletion.entries.slice(0, 5);
@@ -1352,15 +1375,15 @@ function DeleteFilesConfirm({ deletion, busy, onCancel, onContinue, onBack, onCo
         <div className="warning-mark"><Trash2 size={20} /></div>
         {deletion.stage === 1 ? <>
           <h2 id="delete-files-title">Verifica gli elementi selezionati</h2>
-          <p id="delete-files-description">Stai per eliminare {count} {count === 1 ? 'elemento' : 'elementi'} da <strong>{remote}</strong>. Controlla l’elenco prima di continuare.</p>
-          <ul className="delete-files-list">{names.map((entry) => <li key={entry.path}><span>{entry.name}</span><small>{entry.is_dir ? 'Cartella' : 'File'}</small></li>)}</ul>
-          {count > names.length && <p className="delete-more-count">e altri {count - names.length}…</p>}
-          {folders.length > 0 && <p className="delete-files-warning">{folders.length === 1 ? 'La cartella selezionata' : `Le ${folders.length} cartelle selezionate`} e tutto il relativo contenuto verranno eliminati.</p>}
+          <p id="delete-files-description">{t('delete_files_review', { count, remote })}</p>
+          <ul className="delete-files-list">{names.map((entry) => <li key={entry.path}><span data-user-content>{entry.name}</span><small>{entry.is_dir ? 'Cartella' : 'File'}</small></li>)}</ul>
+          {count > names.length && <p className="delete-more-count">{t('and_more_items', { count: count - names.length })}</p>}
+          {folders.length > 0 && <p className="delete-files-warning">{t('delete_folder_warning', { count: folders.length })}</p>}
           <div className="dialog-actions"><button className="secondary-button" onClick={onCancel}>Annulla</button><button className="primary-button" onClick={onContinue}>Continua</button></div>
         </> : <>
           <h2 id="delete-files-title">Conferma eliminazione definitiva</h2>
-          <p id="delete-files-description">Questa azione non si può annullare. Verranno eliminati {count} {count === 1 ? 'elemento' : 'elementi'} da <strong>{remote}</strong>.</p>
-          {folders.length > 0 && <p className="delete-files-warning">{folders.length === 1 ? 'La cartella e tutti i file al suo interno' : `Le ${folders.length} cartelle e tutti i file al loro interno`} saranno rimossi.</p>}
+          <p id="delete-files-description">{t('delete_files_final', { count, remote })}</p>
+          {folders.length > 0 && <p className="delete-files-warning">{t('delete_folder_final', { count: folders.length })}</p>}
           <div className="dialog-actions"><button className="secondary-button" onClick={onBack} disabled={busy}>Indietro</button><button className="danger-button" onClick={onConfirm} disabled={busy}>{busy ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}Elimina definitivamente</button></div>
         </>}
       </section>
@@ -1369,12 +1392,13 @@ function DeleteFilesConfirm({ deletion, busy, onCancel, onContinue, onBack, onCo
 }
 
 function SyncConfirm({ job, busy, onCancel, onConfirm }) {
+  const { t } = useTranslation('ui');
   return (<LocalizeTree>
     <ModalBackdrop onClose={onCancel}>
       <section className="dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="sync-confirm-title" aria-describedby="sync-confirm-description">
         <div className="warning-mark"><TriangleAlert size={21} /></div>
         <h2 id="sync-confirm-title">Confermi la sincronizzazione?</h2>
-        <p id="sync-confirm-description">“{job.name}” renderà la destinazione identica alla sorgente e può eliminare i file presenti solo in {job.destination_remote}.</p>
+        <p id="sync-confirm-description">{t('sync_confirmation', { name: job.name, remote: job.destination_remote })}</p>
         <div className="dialog-actions"><button className="secondary-button" onClick={onCancel} disabled={busy}>Annulla</button><button className="danger-button" onClick={onConfirm} disabled={busy}>{busy ? 'Sincronizzazione…' : 'Conferma ed esegui'}</button></div>
       </section>
     </ModalBackdrop>

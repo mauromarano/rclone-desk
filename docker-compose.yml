@@ -2,11 +2,22 @@ services:
   rclone-ui:
     build: .
     ports:
-      - "0.0.0.0:${PORT:-8000}:8000"
+      - "127.0.0.1:${PORT:-8000}:8000"
     environment:
       APP_DATA: /data
+      APP_ALLOWED_HOSTS: "${APP_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
+      APP_ALLOWED_ORIGINS: "${APP_ALLOWED_ORIGINS:-}"
+      TZ: UTC
     volumes:
       - rclone_data:/data
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 256
     restart: unless-stopped
+
 volumes:
   rclone_data:
