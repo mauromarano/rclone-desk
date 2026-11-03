@@ -59,3 +59,9 @@ A clean npm/Python audit is not a zero-vulnerability claim for the entire image.
 - Git history contains author metadata; no history rewrite was performed. No credential values were printed in the reports.
 - GitHub settings require repository administration access. See [the settings checklist](github-settings.md) for private reporting, description/topics, social preview, and branch protection. An SSH push key alone cannot configure those settings.
 - No existing deployed application, real credentials, or production data volume was modified during validation. Test containers/volumes are separate and removed after checks.
+
+## Published release
+
+The [main CI run](https://github.com/mauromarano/rclone-desk/actions/runs/41623243056) and [v0.1.0 publication workflow](https://github.com/mauromarano/rclone-desk/actions/runs/41623905532) both succeeded for source commit `f89bc3d1fb45b510fb8bb93f51da76685cbcc5b8`. The [experimental prerelease](https://github.com/mauromarano/rclone-desk/releases/tag/v0.1.0) is public. Anonymous manifest access to `ghcr.io/mauromarano/rclone-desk:v0.1.0` was verified; it includes Linux amd64 and arm64 plus attestation manifests. Published index digest: `sha256:64cf480d2f94981af8aa15b7d4400fe997e2724c8318c074c4fb282a5a45462a`.
+
+A final sourcemap inventory found seven frontend runtime packages. The seventh, `use-sync-external-store` 1.7.0, has a license byte-identical to React's shipped notice (both SHA-256 `da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93`). The lockfile integrity of both package archives was verified. Babel runtime and the HTML parser were tree-shaken out of this bundle; build-only modules are not part of the shipped frontend.

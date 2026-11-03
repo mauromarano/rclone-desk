@@ -76,7 +76,20 @@ Cron uses five fields and runs in UTC. When both day-of-month and weekday are re
 
 ## Project status
 
-Rclone Desk is an experimental single-admin tool. See [the changelog](CHANGELOG.md), [roadmap](ROADMAP.md), [support](SUPPORT.md), and [contribution guide](CONTRIBUTING.md). Build the image locally with Docker Compose; this repository does not document a published image or release yet.
+The first experimental prerelease is [v0.1.0](https://github.com/mauromarano/rclone-desk/releases/tag/v0.1.0). The published image is `ghcr.io/mauromarano/rclone-desk:v0.1.0`, available for Linux amd64 and arm64. Its multi-architecture manifest digest is `sha256:64cf480d2f94981af8aa15b7d4400fe997e2724c8318c074c4fb282a5a45462a`.
+
+For a prebuilt installation:
+
+```sh
+docker run -d --name rclone-desk --restart unless-stopped \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --memory=2g --cpus=2 --pids-limit=256 \
+  -p 127.0.0.1:8000:8000 \
+  -v rclone_desk_data:/data \
+  ghcr.io/mauromarano/rclone-desk:v0.1.0
+```
+
+This example creates its own named volume. For an existing installation, preserve its original data volume and follow [the upgrade/backup guide](docs/backup.md). See [the changelog](CHANGELOG.md), [validation results](docs/RELEASE_VALIDATION.md), [roadmap](ROADMAP.md), [support](SUPPORT.md), and [contribution guide](CONTRIBUTING.md).
 
 ## License
 

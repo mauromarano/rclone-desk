@@ -39,8 +39,9 @@ The installed Python distributions retain their license metadata under `/usr/loc
 | React DOM | 19.3.1 | MIT |
 | react-i18next | 17.1.11 | MIT |
 | scheduler | 0.28.0 | MIT |
+| use-sync-external-store | 1.7.0 | MIT (same notice as React) |
 
-These are the frontend packages included in the browser bundle. Their upstream license texts are included in the image under `/app/frontend/dist/licenses/` and are shipped with the browser assets. Upstream project pages: [i18next](https://github.com/i18next/i18next), [Lucide](https://github.com/lucide-icons/lucide), [React](https://github.com/facebook/react), and [react-i18next](https://github.com/i18next/react-i18next).
+These are the frontend packages included in the browser bundle, verified using the build sourcemap. `use-sync-external-store` has a byte-identical license text to React; that shared text is included as `licenses/react.LICENSE`. Their upstream license texts are included in the image under `/app/frontend/dist/licenses/` and are shipped with the browser assets. Upstream project pages: [i18next](https://github.com/i18next/i18next), [Lucide](https://github.com/lucide-icons/lucide), [React](https://github.com/facebook/react), and [react-i18next](https://github.com/i18next/react-i18next).
 
 ## rclone
 
@@ -49,3 +50,7 @@ The image includes the rclone `v1.75.2-desk.1` executable, built from the offici
 The image also includes an inventory and the upstream license/notice files found for Go modules linked into the rclone executable, the Go standard library, and its vendored source subtree under `/usr/share/doc/rclone/dependency-licenses/`. These files preserve each component's own terms; the inventory does not imply that all Go dependencies use MIT.
 
 The corresponding rclone source is available from [the versioned official source archive](https://downloads.rclone.org/v1.75.2/rclone-v1.75.2.tar.gz) (SHA-256 `fa64537e7276196310dbb0bcea6330f03b40e5790197b88f14cce6a19f40eb67`). The Docker build overlays `build/rclone/go.mod` and `build/rclone/go.sum` onto that source before compiling with Go 1.26.10 in read-only module mode. For a listed module, retrieve its exact source with `go mod download <module>@<version>` using the module path and version in the inventory.
+
+## Base runtime
+
+The image also contains CPython and Debian system packages, which retain their own licenses. Debian package copyright/license files are retained under `/usr/share/doc/`; consult the image SBOM for the package/version inventory. The project's MIT license does not replace these upstream terms.
