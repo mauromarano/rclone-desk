@@ -145,6 +145,7 @@ function App() {
   const [explorerMode, setExplorerMode] = useState('copy');
   const noticeTimer = useRef(null);
   const operationStatuses = useRef({});
+  const explorerRequestId = useRef(0);
   const hasActiveOperations = operations.some((operation) => ['queued', 'running'].includes(operation.status));
   const scheduledRunTimes = jobs
     .filter((job) => job.schedule_enabled && job.next_run)
@@ -263,11 +264,17 @@ function App() {
 
   const loadExplorer = async (remote = explorer.remote, path = explorer.path) => {
     if (!remote) return;
+    const requestId = explorerRequestId.current + 1;
+    explorerRequestId.current = requestId;
+    setExplorer({ remote, path, entries: [], loading: true });
     try {
       const result = await api(`/browse/${encodeURIComponent(remote)}?path=${encodeURIComponent(path)}`);
-      setExplorer({ remote, path, entries: result.entries });
+      if (explorerRequestId.current === requestId) setExplorer({ remote, path, entries: result.entries, loading: false });
     } catch (requestError) {
-      setError(requestError.message);
+      if (explorerRequestId.current === requestId) {
+        setExplorer({ remote, path, entries: [], loading: false });
+        setError(requestError.message);
+      }
     }
   };
 
@@ -687,12 +694,12 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
         </div>
       </section>
       <section className="explorer-pane" aria-label={`File in ${explorer.remote}`}>
-        <header className="explorer-pathbar">
+        <header className="explorer-pathbar" aria-busy={explorer.loading}>
           <nav className="path-crumbs" aria-label="Percorso remoto">
             <button onClick={() => onNavigate(explorer.remote, '')} aria-label="Radice"><Home size={14} /><span>{explorer.remote || 'Root'}</span></button>
             {segments.map((segment, index) => <React.Fragment key={`${segment}-${index}`}><ChevronRight size={13} /><button onClick={() => onNavigate(explorer.remote, segments.slice(0, index + 1).join('/'))}>{segment}</button></React.Fragment>)}
           </nav>
-          <span className="explorer-count">{explorer.entries.length} elementi</span>
+          <span className="explorer-count">{explorer.loading ? <><LoaderCircle size={12} className="explorer-count-spinner" />Lettura…</> : `${explorer.entries.length} elementi`}</span>
         </header>
         {selectedEntries.length > 0 && <div className="selection-toolbar" role="region" aria-label="Azioni sugli elementi selezionati">
           <span><strong>{selectedEntries.length}</strong> {selectedEntries.length === 1 ? 'elemento selezionato' : 'elementi selezionati'}</span>
@@ -705,7 +712,7 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
           {selectedFiles.length < selectedEntries.length && <small className="selection-note">Le cartelle selezionate non verranno incluse nel download.</small>}
           {selectedEntries.length > 200 && <small className="selection-note">Puoi eliminare al massimo 200 elementi per volta.</small>}
         </div>}
-        <div className="explorer-table-scroll">
+        <div className="explorer-table-scroll" aria-busy={explorer.loading}>
           <table className="file-table explorer-table">
             <thead><tr><th scope="col" className="selection-column"><input type="checkbox" aria-label="Seleziona tutti gli elementi" checked={allSelected} onChange={(event) => setSelectedPaths(event.target.checked ? new Set(sortedEntries.map((entry) => entry.path)) : new Set())} /></th><th scope="col">Nome</th><th scope="col" className="size-column">Dimensione</th><th scope="col" className="type-column">Tipo</th><th scope="col" className="date-column">Modificato</th><th scope="col" className="explorer-actions-column"><span className="sr-only">Azioni</span></th></tr></thead>
             <tbody>
@@ -722,7 +729,12 @@ function FileExplorerWorkspace({ explorer, remotes, target, targetPath, mode, bu
               </tr>)}
             </tbody>
           </table>
-          {!sortedEntries.length && <div className="explorer-empty"><Folder size={25} /><strong>{explorer.path ? 'Cartella vuota' : 'Remote vuoto'}</strong><span>Non ci sono elementi in questo percorso.</span></div>}
+          {!sortedEntries.length && (explorer.loading ? <div className="explorer-loading" role="status" aria-live="polite">
+            <div className="explorer-loading-message"><LoaderCircle size={17} className="explorer-loading-spinner" /><span>Sto leggendo i file di <strong>{explorer.remote}</strong>…</span></div>
+            <div className="explorer-skeleton" aria-hidden="true">
+              {[0, 1, 2, 3].map((row) => <div key={row} className="explorer-skeleton-row"><span className="explorer-skeleton-icon" /><span className="explorer-skeleton-name" /><span className="explorer-skeleton-meta" /></div>)}
+            </div>
+          </div> : <div className="explorer-empty"><Folder size={25} /><strong>{explorer.path ? 'Cartella vuota' : 'Remote vuoto'}</strong><span>Non ci sono elementi in questo percorso.</span></div>)}
         </div>
         {mode === 'move' && <p className="explorer-note"><TriangleAlert size={14} />Sposta elimina la sorgente solo dopo il trasferimento riuscito.</p>}
       </section>

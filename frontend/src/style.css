@@ -192,6 +192,25 @@ button:disabled { cursor: not-allowed; opacity: .56; }
 .explorer-empty { display: flex; min-height: 225px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #758198; }
 .explorer-empty strong { color: #344159; font-size: 13px; }
 .explorer-empty > span { color: var(--muted); font-size: 11px; }
+.explorer-count { display: inline-flex; align-items: center; gap: 5px; }
+.explorer-count-spinner, .explorer-loading-spinner { flex: 0 0 auto; color: var(--blue); animation: explorer-spin .85s linear infinite; }
+.explorer-loading { position: relative; min-height: 225px; padding: 28px 20px 18px; overflow: hidden; }
+.explorer-loading::before { position: absolute; top: 0; right: 0; left: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--blue), transparent); content: ""; transform: translateX(-100%); animation: explorer-scan 1.25s ease-in-out infinite; }
+.explorer-loading-message { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 20px; color: #526078; font-size: 11px; }
+.explorer-loading-message strong { color: #26344b; font-weight: 650; }
+.explorer-skeleton { display: grid; max-width: 620px; gap: 0; margin-inline: auto; }
+.explorer-skeleton-row { display: flex; height: 42px; align-items: center; gap: 12px; border-bottom: 1px solid #f0f2f5; opacity: 0; animation: explorer-row-arrive .28s cubic-bezier(.16, 1, .3, 1) forwards; }
+.explorer-skeleton-row:nth-child(2) { animation-delay: 60ms; }
+.explorer-skeleton-row:nth-child(3) { animation-delay: 120ms; }
+.explorer-skeleton-row:nth-child(4) { animation-delay: 180ms; }
+.explorer-skeleton-row > span { display: block; flex: 0 0 auto; height: 9px; border-radius: 5px; background: linear-gradient(100deg, #eef1f6 20%, #dfe8fb 45%, #eef1f6 70%); background-size: 220% 100%; animation: explorer-shimmer 1.35s ease-in-out infinite; }
+.explorer-skeleton-row > .explorer-skeleton-icon { width: 15px; height: 15px; border-radius: 4px; }
+.explorer-skeleton-row > .explorer-skeleton-name { width: min(38%, 220px); }
+.explorer-skeleton-row > .explorer-skeleton-meta { width: 9%; margin-left: auto; }
+@keyframes explorer-spin { to { transform: rotate(360deg); } }
+@keyframes explorer-scan { 60%, 100% { transform: translateX(100%); } }
+@keyframes explorer-shimmer { to { background-position: -220% 0; } }
+@keyframes explorer-row-arrive { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 .create-bucket-dialog { width: min(460px, 100%); }
 .create-bucket-error { display: flex; align-items: flex-start; gap: 7px; margin: 0; color: #87271f; font-size: 11px; line-height: 1.5; }
 .create-bucket-error svg { flex: 0 0 auto; margin-top: 1px; }
