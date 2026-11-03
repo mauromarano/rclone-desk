@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T00:00:00.000Z",
+  "title": "Design System: Rclone Desk",
+  "extensions": {
+    "colorMeta": {
+      "ink": { "role": "neutral", "displayName": "Ink Navy", "canonical": "#172033" },
+      "muted": { "role": "neutral", "displayName": "Slate Text", "canonical": "#526078" },
+      "quiet": { "role": "neutral", "displayName": "Quiet Slate", "canonical": "#647188" },
+      "line": { "role": "neutral", "displayName": "Neutral Divider", "canonical": "#dfe4ec" },
+      "line-strong": { "role": "neutral", "displayName": "Strong Divider", "canonical": "#c9d1dd" },
+      "surface": { "role": "neutral", "displayName": "White Surface", "canonical": "#fff" },
+      "canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "#f4f6f9" },
+      "blue": { "role": "primary", "displayName": "Clear Action Blue", "canonical": "#2459d6" },
+      "blue-dark": { "role": "primary", "displayName": "Deep Action Blue", "canonical": "#1947b4" },
+      "blue-wash": { "role": "primary", "displayName": "Blue Wash", "canonical": "#edf3ff" },
+      "green": { "role": "secondary", "displayName": "Success Green", "canonical": "#1b7554" },
+      "green-wash": { "role": "secondary", "displayName": "Success Wash", "canonical": "#eaf6ef" },
+      "amber": { "role": "tertiary", "displayName": "Warning Amber", "canonical": "#8a4b08" },
+      "amber-wash": { "role": "tertiary", "displayName": "Warning Wash", "canonical": "#fff5e2" },
+      "red": { "role": "tertiary", "displayName": "Destructive Red", "canonical": "#b42318" },
+      "red-wash": { "role": "tertiary", "displayName": "Destructive Wash", "canonical": "#fff0ee" },
+      "focus": { "role": "primary", "displayName": "Focus Blue", "canonical": "#3478ed" }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "System UI Sans", "purpose": "Interface text and headings." },
+      "mono": { "displayName": "System Monospace", "purpose": "INI configuration editor only." }
+    },
+    "shadows": [
+      { "name": "dialog-elevation", "value": "0 18px 52px rgba(23, 32, 51, .18)", "purpose": "Structural elevation for modal dialogs." },
+      { "name": "success-toast", "value": "0 8px 24px rgba(17, 42, 31, .1)", "purpose": "Subtle lift for brief success feedback." }
+    ],
+    "motion": [
+      { "name": "workspace-settle", "value": ".28s cubic-bezier(.16, 1, .3, 1)", "purpose": "Brief workspace entrance." },
+      { "name": "dialog-in", "value": ".2s cubic-bezier(.16, 1, .3, 1)", "purpose": "Brief dialog entrance; reduced-motion preferences shorten animation and transitions." },
+      { "name": "control-transition", "value": ".15s ease", "purpose": "Button background, border, and color changes." }
+    ],
+    "breakpoints": [
+      { "name": "medium", "value": "1100px" },
+      { "name": "mobile", "value": "760px" },
+      { "name": "compact", "value": "420px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary create or commit action.",
+      "html": "<button class=\"ds-btn-primary\">Create remote</button>",
+      "css": ".ds-btn-primary { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; border: 1px solid transparent; border-radius: 8px; color: #fff; background: #2459d6; font: 650 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: background .15s ease, border-color .15s ease, color .15s ease; } .ds-btn-primary:hover { background: #1947b4; } .ds-btn-primary:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-btn-primary:active { background: #1947b4; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined alternative action.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; border: 1px solid #c9d1dd; border-radius: 8px; color: #35435a; background: #fff; font: 650 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: background .15s ease, border-color .15s ease, color .15s ease; } .ds-btn-secondary:hover { border-color: #aeb9ca; background: #f7f9fc; } .ds-btn-secondary:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-btn-secondary:active { background: #f7f9fc; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Clearly destructive action, reserved for meaningful consequences.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; border: 1px solid transparent; border-radius: 8px; color: #fff; background: #b42318; font: 650 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: background .15s ease, border-color .15s ease, color .15s ease; } .ds-btn-danger:hover { background: #981c14; } .ds-btn-danger:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-btn-danger:active { background: #981c14; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labeled native-feeling form field with clear focus state.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Remote name</span><input class=\"ds-input\" value=\"archive\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #344159; font: 660 11px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-input { width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid #cbd3df; border-radius: 7px; outline: 0; color: #26344b; background: #fff; font: 400 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-input:hover { border-color: #aeb9ca; } .ds-input:focus-visible { border-color: #3478ed; box-shadow: 0 0 0 2px rgba(52,120,237,.14); } .ds-input:active { border-color: #3478ed; }"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-active",
+      "description": "Compact sidebar destination with a distinct selected state.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav-item\">File browser</button><button class=\"ds-nav-item ds-nav-item-active\">Configuration</button></nav>",
+      "css": ".ds-nav { display: grid; gap: 4px; } .ds-nav-item { min-height: 40px; display: flex; align-items: center; gap: 11px; padding: 0 11px; border: 0; border-radius: 8px; color: #43516a; background: transparent; font: 560 13px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: left; transition: color .16s ease, background .16s ease; } .ds-nav-item:hover { color: #172033; background: #f1f4f8; } .ds-nav-item-active { color: #1947b4; background: #edf3ff; font-weight: 680; } .ds-nav-item:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-nav-item:active { background: #edf3ff; }"
+    },
+    {
+      "name": "Transfer Mode Selector",
+      "kind": "custom",
+      "refersTo": "navigation-active",
+      "description": "Segmented choice that makes Copy or Move mode visible before transfer.",
+      "html": "<div class=\"ds-segmented\"><button class=\"ds-segment ds-segment-selected\">Move</button><button class=\"ds-segment\">Copy</button></div>",
+      "css": ".ds-segmented { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid #dfe4ec; border-radius: 9px; background: #f4f6f9; } .ds-segment { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0 13px; border: 1px solid transparent; border-radius: 6px; color: #536078; background: transparent; font: 630 12px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-segment:hover { color: #172033; } .ds-segment-selected { border-color: #dbe4fa; color: #1947b4; background: #fff; box-shadow: 0 1px 2px rgba(22, 38, 67, .08); } .ds-segment:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-segment:active { background: #edf3ff; }"
+    },
+    {
+      "name": "File Pane",
+      "kind": "card",
+      "refersTo": "file-pane",
+      "description": "Remote browsing container with header, location, table and footer divisions.",
+      "html": "<section class=\"ds-file-pane\"><header class=\"ds-pane-header\"><strong>Source</strong><button class=\"ds-refresh\" aria-label=\"Refresh\"><svg viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M20 7v5h-5M4 17v-5h5\"/><path d=\"M5.6 9a7 7 0 0 1 11.6-2L20 12M4 12l2.8 5a7 7 0 0 0 11.6-2\"/></svg></button></header><div class=\"ds-file-row\"><span class=\"ds-folder-mark\">▰</span><span>Documents</span><span class=\"ds-file-type\">Folder</span></div></section>",
+      "css": ".ds-file-pane { display: flex; min-width: 0; min-height: 345px; flex-direction: column; overflow: hidden; border: 1px solid #dfe4ec; border-radius: 12px; background: #fff; transition: border-color .16s ease, background-color .16s ease; } .ds-file-pane:hover { border-color: #c9d1dd; } .ds-file-pane:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-file-pane:active { background: #f8faff; } .ds-pane-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 12px; border-bottom: 1px solid #dfe4ec; color: #47556d; font: 720 10px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: .075em; text-transform: uppercase; } .ds-refresh { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 8px; color: #4a5870; background: transparent; } .ds-refresh:hover { border-color: #dfe4ec; color: #172033; background: #f6f8fb; } .ds-refresh:focus-visible { outline: 3px solid #3478ed; outline-offset: 2px; } .ds-refresh:active { background: #edf3ff; } .ds-file-row { min-height: 43px; display: flex; align-items: center; gap: 9px; padding: 0 16px; border-bottom: 1px solid #f0f2f5; color: #26334a; font: 570 11px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-folder-mark { color: #b17a18; } .ds-file-type { margin-left: auto; color: #536078; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Familiar Cloud File Manager",
+    "overview": "Rclone Desk uses the recognizable grammar of a well-made cloud file manager: a clean white working surface, legible dark type, orderly tables, and restrained blue for primary actions and selection. Its visual character is practical and calm, with enough structure to make two remote locations and their contents easy to distinguish without decorative distractions. Google Drive, Dropbox, and Nextcloud are the craft bar for this category-standard direction, not a request to imitate their branding.\n\nControls should feel native to the web platform and behave predictably. File and folder identity is explicit; transfer mode is visible before action; amber and red signal consequential warnings and destructive states. Responsive behavior preserves the same file-manager grammar from wide side-by-side browsing to stacked mobile panes.",
+    "keyCharacteristics": [
+      "Familiar cloud file-manager conventions with clear remote identity.",
+      "White surfaces, dark readable text, restrained blue emphasis, and neutral separators.",
+      "Explicit file/folder distinction and visible Copy/Move consequences.",
+      "Responsive, orderly tables and controls that remain usable on narrow screens."
+    ],
+    "rules": [
+      { "name": "The Consequence Color Rule", "body": "Keep blue for selection and primary action; reserve amber and red for meaningful warning and destructive states.", "section": "colors" },
+      { "name": "The Platform Type Rule", "body": "Use the system sans-serif stack for the interface; keep monospace confined to configuration editing.", "section": "typography" }
+    ],
+    "dos": [
+      "Do use a white working surface, legible dark text, restrained blue interaction color, and quiet neutral separators.",
+      "Do keep file and folder identity visible and make table headings sortable.",
+      "Do expose Copy and Move choices and their consequences before transfer; retain row actions as a non-drag alternative.",
+      "Do use amber for warnings and red for destructive or error states; preserve visible keyboard focus.",
+      "Do stack panes responsively while retaining their remote identity and actions."
+    ],
+    "donts": [
+      "Don't invent a competing visual metaphor or borrow another product's branding.",
+      "Don't rely on dragging as the only way to transfer a file.",
+      "Don't use blue as a substitute for warning or destructive meaning.",
+      "Don't hide file-versus-folder identity in the table."
+    ]
+  }
+}

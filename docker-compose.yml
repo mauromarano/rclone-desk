@@ -1,0 +1,12 @@
+services:
+  rclone-ui:
+    build: .
+    ports:
+      - "0.0.0.0:${PORT:-8000}:8000"
+    environment:
+      APP_DATA: /data
+    volumes:
+      - rclone_data:/data
+    restart: unless-stopped
+volumes:
+  rclone_data:
