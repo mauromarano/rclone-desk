@@ -25,6 +25,8 @@ Open <http://localhost:8000>. The default host binding is loopback only. To choo
 PORT=8080 docker compose up --build -d
 ```
 
+To make the service reachable on your LAN, copy `example.env` to `.env` and set `BIND_ADDRESS=0.0.0.0`. Set `TZ` there to an IANA timezone such as `Europe/Rome`. The app has no built-in authentication, so only expose it on a trusted network or behind an authenticated proxy.
+
 The first build compiles rclone and may take several minutes. Allow at least 10 GB of free Docker build storage. The container includes the frontend, backend, and rclone. Node.js, Python, and rclone do not need to be installed on the host. Before first startup, `prepare-data.sh` creates the host data directory with private permissions and gives the top-level directory to container UID 10001. The default directory is `./data` in the repository. To use another directory, export an absolute path before running both the helper and Compose:
 
 ```sh

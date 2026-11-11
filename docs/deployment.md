@@ -4,7 +4,7 @@ Rclone Desk is an experimental single-admin app. It has no built-in authenticati
 
 ## Local use
 
-The Compose configuration builds locally and publishes the service on loopback at `127.0.0.1:${PORT:-8000}`. Start it with:
+The Compose configuration builds locally and publishes the service on loopback by default at `${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}`. Start it with:
 
 ```sh
 ./scripts/prepare-data.sh
@@ -12,6 +12,8 @@ docker compose up --build -d
 ```
 
 Open <http://localhost:8000>. Set `PORT=8080` to use another local host port. The host data directory defaults to `./data` in the repository and is mounted at `/data` in the container. Run `./scripts/prepare-data.sh` once before the first startup; it creates the directory with private permissions and sets ownership of the top-level directory to UID 10001. The app creates its config and state files with restrictive permissions.
+
+Copy `example.env` to `.env` to configure Compose variables. Set `BIND_ADDRESS=0.0.0.0` to listen on all host interfaces (including the LAN), and set `TZ` to an IANA timezone such as `Europe/Rome`. The application has no built-in authentication; use this only on a trusted network or behind an authenticated proxy.
 
 To use a different location, export its absolute path before running both the preparation script and Compose:
 

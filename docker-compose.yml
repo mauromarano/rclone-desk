@@ -2,12 +2,12 @@ services:
   rclone-ui:
     build: .
     ports:
-      - "127.0.0.1:${PORT:-8000}:8000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8000}:8000"
     environment:
       APP_DATA: /data
       APP_ALLOWED_HOSTS: "${APP_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}"
       APP_ALLOWED_ORIGINS: "${APP_ALLOWED_ORIGINS:-}"
-      TZ: UTC
+      TZ: "${TZ:-UTC}"
     volumes:
       - type: bind
         source: ${RCLONE_DESK_DATA_DIR:-./data}
