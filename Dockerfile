@@ -10,7 +10,7 @@ RUN npm run build \
          cp "node_modules/$package/LICENSE" "/web/dist/licenses/$package.LICENSE"; \
        done
 
-FROM python:3.12-slim-trixie@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS rclone-source
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS rclone-source
 RUN python - <<'PY'
 import hashlib
 import pathlib
@@ -52,7 +52,7 @@ RUN export GOMAXPROCS=2 CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" GOFL
     && unset GOFLAGS \
     && go clean -cache -modcache
 
-FROM python:3.12-slim-trixie@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS runtime
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 WORKDIR /app
 COPY backend/requirements.lock ./requirements.lock
 RUN python -m pip install --no-cache-dir --upgrade pip==26.3 \
